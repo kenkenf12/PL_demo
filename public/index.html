@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fantasy Premier League recommendations, fixture analysis and squad planning based on official FPL data.">
+  <meta name="theme-color" content="#172c2b">
+  <title>Personal FPL Assistant</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.mjs" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell bar-content">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>FPL Assistant</span></div>
+      <div class="top-actions">
+        <button class="source-button" id="source-button" type="button">Official FPL data</button>
+      </div>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="panel prediction-workspace" aria-labelledby="prediction-title">
+      <h1 id="prediction-title">Gameweek squad prediction</h1>
+      <div class="prediction-steps">
+        <label for="prediction-week">1. Select Gameweek<select id="prediction-week"><option value="">Choose a Gameweek</option></select></label>
+        <div class="prediction-step"><span>2. Refresh FPL data</span><button class="button button-outline" id="refresh" type="button" disabled>Refresh FPL Data</button></div>
+        <label for="prediction-strategy">3. Select prediction strategy<select id="prediction-strategy" disabled>
+          <option value="">Choose a strategy</option>
+          <option value="ranking">Current FPL Ranking</option>
+          <option value="previous">Previous Gameweek Performance</option>
+          <option value="weather">Weather Impact Prediction</option>
+        </select></label>
+        <div class="prediction-step"><span>4. Analyse FPL players</span><button class="button button-primary" id="analyse" type="button" disabled>Analyse FPL Players</button></div>
+      </div>
+      <div class="prediction-statuses">
+        <p id="refresh-status" role="status">Select a Gameweek to start.</p>
+        <p id="last-refresh">Last successful refresh unavailable</p>
+      </div>
+      <p id="analysis-status" role="status" hidden></p>
+      <div id="prediction-result" hidden></div>
+      <details class="prediction-history" id="prediction-history">
+        <summary>Prediction history</summary>
+        <div id="history-content"><p class="empty">Loading saved predictions…</p></div>
+      </details>
+    </section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="dashboard" hidden>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow" id="hero-season"></p>
+          <h2 id="hero-title">Plan your next Gameweek.</h2>
+          <p class="hero-description" id="hero-deadline"></p>
+        </div>
+        <div class="hero-control">
+          <label for="horizon">Projection horizon</label>
+          <select id="horizon">
+            <option value="1">1 Gameweek</option>
+            <option value="2">2 Gameweeks</option>
+            <option value="3">3 Gameweeks</option>
+            <option value="4" selected>4 Gameweeks</option>
+            <option value="5">5 Gameweeks</option>
+            <option value="6">6 Gameweeks</option>
+          </select>
+        </div>
+      </section>
+      <section class="insights" id="insights" aria-label="Player recommendations"></section>
+      <nav class="tabs" aria-label="Dashboard views">
+        <button type="button" class="tab" data-view="players" aria-pressed="true">Player rankings</button>
+        <button type="button" class="tab" data-view="fixtures" aria-pressed="false">Fixtures</button>
+        <button type="button" class="tab" data-view="squad" aria-pressed="false">My squad</button>
+      </nav>
+      <section id="players-view" aria-labelledby="players-title">
+        <div class="section-head">
+          <div><h2 id="players-title">Player rankings</h2><p id="ranking-caption"></p></div>
+          <button type="button" class="button button-outline" id="method-button">How projections work</button>
+        </div>
+        <div class="panel">
+          <form id="filters" class="filters" role="search">
+            <label class="search-field">Player<input id="search" type="search" placeholder="Search by name"></label>
+            <label>Position<select id="position"><option value="">All positions</option></select></label>
+            <label>Club<select id="club"><option value="">All clubs</option></select></label>
+            <label>Max price (£m)<input id="max-price" type="number" min="0" step="0.1" placeholder="Any price"></label>
+            <label>Sort<select id="sort">
+              <option value="projected">Projected points</option><option value="value">Points per £m</option>
+              <option value="total_points">Season points</option><option value="minutes">Minutes played</option>
+              <option value="form">FPL form</option><option value="now_cost">Price, low to high</option>
+            </select></label>
+          </form>
+          <div class="scroll-table" tabindex="0" aria-label="Player rankings table">
+            <table>
+              <thead><tr><th scope="col">Player</th><th scope="col">Price</th><th scope="col">Points</th><th scope="col">Minutes</th><th scope="col">Form</th><th scope="col">Upcoming fixtures</th><th scope="col">Projected</th></tr></thead>
+              <tbody id="player-rows"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <p id="page-summary" aria-live="polite"></p>
+            <div><button class="button button-outline" id="prev" type="button">Previous</button><button class="button button-outline" id="next" type="button">Next</button></div>
+          </div>
+        </div>
+      </section>
+      <section id="fixtures-view" aria-labelledby="fixtures-title" hidden>
+        <div class="section-head"><div><h2 id="fixtures-title">Fixtures</h2><p>Official kick-offs and results in UK time.</p></div><label class="week-select" for="fixture-week">Gameweek<select id="fixture-week"></select></label></div>
+        <div id="fixture-list" class="panel fixture-list"></div>
+      </section>
+      <section id="squad-view" aria-labelledby="squad-title" hidden>
+        <div class="section-head"><div><h2 id="squad-title">My squad</h2><p>Load your latest published picks using the Team ID from your FPL points page.</p></div></div>
+        <form id="entry-form" class="panel entry-form">
+          <label for="entry-id">Public Team ID<input id="entry-id" name="team-id" type="text" inputmode="numeric" pattern="[0-9]+" required placeholder="Enter Team ID"></label>
+          <button class="button button-primary" type="submit">Load squad</button>
+        </form>
+        <p id="entry-status" role="status" hidden></p>
+        <div id="entry-content"></div>
+      </section>
+    </div>
+  </main>
+  <dialog id="dialog" aria-labelledby="dialog-title">
+    <div class="dialog-head"><h2 id="dialog-title"></h2><form method="dialog"><button class="button button-outline" type="submit">Close</button></form></div>
+    <div id="dialog-body"></div>
+  </dialog>
+</body>
+</html>
