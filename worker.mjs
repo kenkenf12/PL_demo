@@ -2,6 +2,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { createFplClient } from './lib/fpl.mjs';
 import { createApiHandler, json, securityHeaders } from './lib/http.mjs';
 import { predictionService } from './lib/predictions.mjs';
+import { createUkOddsComparison } from './lib/uk-odds.mjs';
+import { createUkOddsFeed } from './lib/uk-odds-feed.mjs';
 
 const cookieName = '__Host-fpl_session';
 const sessionLifetime = 365 * 24 * 60 * 60;
@@ -14,24 +16,44 @@ function existingSession(request) {
   return sessionId.test(value) ? value : null;
 }
 
+function storedRecords(sql) {
+  sql.exec('CREATE TABLE IF NOT EXISTS session_state (key TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+  return {
+    read(key) {
+      const [row] = sql.exec('SELECT payload FROM session_state WHERE key = ?', key).toArray();
+      return row ? JSON.parse(row.payload) : undefined;
+    },
+    write(key, value) {
+      sql.exec('INSERT INTO session_state (key, payload) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET payload = excluded.payload',
+        key, JSON.stringify(value));
+    }
+  };
+}
+
+export class OddsFeed extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.feed = createUkOddsFeed(env.ODDS_API_KEY, { store: storedRecords(ctx.storage.sql) });
+  }
+
+  listEvents() {
+    return this.feed.listEvents();
+  }
+
+  prices(eventIds) {
+    return this.feed.prices(eventIds);
+  }
+}
+
 export class FplSession extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     const { storage } = ctx;
     const { sql } = storage;
-    sql.exec('CREATE TABLE IF NOT EXISTS session_state (key TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    const records = storedRecords(sql);
     sql.exec('CREATE TABLE IF NOT EXISTS predictions (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
 
-    const state = key => ({
-      read() {
-        const [row] = sql.exec('SELECT payload FROM session_state WHERE key = ?', key).toArray();
-        return row ? JSON.parse(row.payload) : undefined;
-      },
-      write(value) {
-        sql.exec('INSERT INTO session_state (key, payload) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET payload = excluded.payload',
-          key, JSON.stringify(value));
-      }
-    });
+    const state = key => ({ read: () => records.read(key), write: value => records.write(key, value) });
 
     const read = () => sql.exec('SELECT payload FROM predictions ORDER BY rowid DESC').toArray().map(row => JSON.parse(row.payload));
     const history = {
@@ -52,7 +74,8 @@ export class FplSession extends DurableObject {
     };
 
     const fpl = createFplClient(state('snapshot'));
-    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh'), ukOddsApiKey: env.UK_ODDS_API_KEY }));
+    const odds = createUkOddsComparison(env.ODDS_FEED.getByName('uk-epl'));
+    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh'), odds }));
   }
 
   fetch(request) {

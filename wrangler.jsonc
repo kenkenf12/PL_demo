@@ -11,10 +11,12 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "FPL_SESSION", "class_name": "FplSession" }
+      { "name": "FPL_SESSION", "class_name": "FplSession" },
+      { "name": "ODDS_FEED", "class_name": "OddsFeed" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["FplSession"] }
+    { "tag": "v1", "new_sqlite_classes": ["FplSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["OddsFeed"] }
   ]
 }

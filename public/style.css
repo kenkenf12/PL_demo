@@ -179,13 +179,13 @@ summary { color: #355846; font-weight: 650; cursor: pointer; }
 #prediction-result, #news-result, #odds-result, .prediction-history { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
 .prediction-result-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; }
 .prediction-result-head h3 { margin: 0; font-size: 1.28rem; letter-spacing: -.03em; }
-.prediction-result-head p, .prediction-caption, .prediction-weather p { color: var(--muted); font-size: .875rem; }
+.prediction-result-head p, .prediction-caption { color: var(--muted); font-size: .875rem; }
 .prediction-total { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 7px; background: #e7f1dd; color: #2e5031; font-size: .875rem; }
 .prediction-total strong { font-size: 1.35rem; }
-#prediction-result p, .prediction-weather p { margin-block: 6px; }
+#prediction-result p { margin-block: 6px; }
 .prediction-result-head + p { margin-top: 10px; }
 .prediction-role { display: inline-block; margin-left: 7px; padding: 3px 5px; border-radius: 4px; background: #e7f1dd; color: #2e5031; font-size: .75rem; font-weight: 750; }
-.prediction-comparisons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.prediction-comparisons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .prediction-comparison { display: flex; flex-direction: column; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; font-size: .875rem; }
 .prediction-comparison span { color: var(--muted); }
 #history-content > .prediction-caption { margin-block: 8px; }

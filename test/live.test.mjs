@@ -31,7 +31,7 @@ function assertSource(source, path) {
 before(async () => {
   historyDir = await mkdtemp(join(tmpdir(), 'fpl-test-history-'));
   child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, FPL_PORT: '0', FPL_HISTORY_DIR: historyDir,
-    UK_ODDS_API_KEY: '' }, stdio: ['ignore', 'pipe', 'inherit'] });
+    ODDS_API_KEY: '' }, stdio: ['ignore', 'pipe', 'inherit'] });
   const lines = createInterface({ input: child.stdout });
   try {
     const [line] = await once(lines, 'line', { signal: AbortSignal.timeout(10_000) });
@@ -53,6 +53,7 @@ after(async () => {
 test('serves the dashboard and freshly retrieves a consistent current-season snapshot', async () => {
   const page = await (await request('/')).text();
   assert.match(page, /Personal FPL Assistant/);
+  assert.doesNotMatch(page, /Weather Impact Prediction/);
   await request('/app.mjs');
   const now = new Date();
   assert.equal(season.seasonYear, now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0));
@@ -142,7 +143,7 @@ function assertSquad(record) {
   assert.equal(record.total, comparable.length ? comparable.reduce((sum, player) => sum + player.predicted, 0) : null);
 }
 
-test('requires a manual Gameweek refresh and saves each requested strategy with a legal squad', async t => {
+test('requires a manual Gameweek refresh and runs only the selected prediction strategy', async t => {
   const target = season.events.find(event => !event.finished && Date.parse(event.deadline_time) > Date.now());
   if (!target) return t.skip('The season has no upcoming Gameweek.');
   const endpoint = `/api/predictions?gameweek=${target.id}`;
@@ -152,49 +153,48 @@ test('requires a manual Gameweek refresh and saves each requested strategy with 
   assert.equal(refresh.dashboard.stale, false);
   const scope = `${endpoint}&token=${refresh.token}`;
   await request(`${scope}&strategy=all`, 400, 'POST');
+  await request(`${scope}&strategy=weather`, 400, 'POST');
 
-  const selected = refresh.previousWeek ? ['ranking', 'previous', 'weather', 'recent'] : ['ranking', 'weather', 'recent'];
+  const selected = refresh.previousWeek ? ['ranking', 'previous', 'recent'] : ['ranking', 'recent'];
   const results = [];
   let previousSource;
   for (const strategy of selected) {
     const record = await (await request(`${scope}&strategy=${strategy}`, 201, 'POST')).json();
     assert.equal(record.strategy, strategy);
     assert.equal(record.gameweek, target.id);
-    assertSquad(record);
+    assert.equal(record.weather, undefined);
+    if (!record.shortlist) assertSquad(record);
+    else {
+      assert.equal(strategy, 'recent');
+      assert.ok(record.players.length <= 15);
+      assert.equal(record.captain, null);
+      assert.equal(record.viceCaptain, null);
+      assert.equal(Boolean(record.id), record.players.length > 0);
+    }
     assert.equal(record.accuracy, null);
     if (strategy === 'previous') {
       previousSource = record.sources[2];
       assertSource(previousSource, `/api/event/${refresh.previousWeek}/live/`);
     }
     else assert.equal(record.previousWeek, null);
-    if (strategy === 'weather') {
-      assert.ok(record.weather);
-      for (const fixture of record.weather.fixtures) {
-        if (fixture.unavailable) continue;
-        assert.ok([fixture.temperature, fixture.rain, fixture.gust].every(Number.isFinite));
-        assert.ok(record.sources.some(source => source.url.startsWith('https://api.open-meteo.com/') && Date.parse(source.retrievedAt)));
-      }
-      const coverage = record.weather.fixtures.filter(fixture => !fixture.unavailable).length;
-      t.diagnostic(`Open-Meteo forecast coverage: ${coverage}/${record.weather.fixtures.length} fixtures`);
-    } else assert.equal(record.weather, null);
     if (strategy === 'recent') {
       assert.ok(record.recentForm.domesticWeeks.length <= 3);
       assert.ok(record.players.every(player => Number.isInteger(player.evidence.domesticWeeks)
-        && Number.isInteger(player.evidence.internationalMatches)));
+        && player.evidence.internationalMatches + player.evidence.cupMatches + player.evidence.europeanMatches > 0));
       if (previousSource) assert.deepEqual(record.sources.find(source => source.url === previousSource.url), previousSource);
       if (record.recentForm.internationalReports) {
         assert.ok(record.sources.some(source => source.url.startsWith('https://site.api.espn.com/') && source.url.includes('/summary?event=')));
       }
-      t.diagnostic(`Recent form coverage: ${record.recentForm.domesticWeeks.length} FPL Gameweeks, ${record.recentForm.internationalReports} matched international reports, ${record.recentForm.cupReports} matched cup reports`);
+      t.diagnostic(`Recent form selected ${record.players.length} players with verified non-EPL appearances. Matched reports: ${record.recentForm.internationalReports} international, ${record.recentForm.cupReports} domestic cup, ${record.recentForm.europeanReports} UEFA club.`);
       const repeat = await (await request(`${scope}&strategy=recent`, 201, 'POST')).json();
       assert.deepEqual(repeat.sources, record.sources);
       assert.deepEqual(repeat.players, record.players);
-      results.push(repeat.id);
+      if (repeat.id) results.push(repeat.id);
     } else {
       assert.equal(record.recentForm, undefined);
       assert.ok(record.players.every(player => player.evidence === undefined));
     }
-    results.push(record.id);
+    if (record.id) results.push(record.id);
   }
   const history = await (await request('/api/predictions')).json();
   assert.ok(results.every(id => history.some(record => record.id === id)));
@@ -271,7 +271,6 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   const tracked = [];
   let clock = Date.parse(week.deadline_time) - 1;
   let snapshot = { ...season, events, fixtures };
-  let weatherCalls = 0;
   let liveCalls = 0;
   let refreshCalls = 0;
   let formCalls = 0;
@@ -281,21 +280,13 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   }, {
     now: () => clock,
     history: { read: async () => tracked, update: async transform => tracked.splice(0, tracked.length, ...transform(tracked)) },
-    weather: async matches => {
-      weatherCalls += 1;
-      return { fixtures: matches.map(fixture => ({ id: fixture.id, unavailable: 'Forecast unavailable' })), sources: [] };
-    },
     form: async () => { formCalls += 1; throw new Error('Recent form must only run for its own strategy'); }
   });
   const input = await service.refresh(week.id);
   assert.equal(input.previousWeek, prior.id);
   const ranking = await service.analyse(week.id, 'ranking', input.token);
   await service.analyse(week.id, 'previous', input.token);
-  assert.equal(weatherCalls, 0);
-  const weather = await service.analyse(week.id, 'weather', input.token);
-  assertSquad(weather);
-  assert.ok(weather.weather.fixtures.every(fixture => fixture.unavailable));
-  assert.equal(weatherCalls, 1);
+  await assert.rejects(service.analyse(week.id, 'weather', input.token), { status: 400 });
   assert.equal(formCalls, 0);
   assert.equal(liveCalls, 1);
   assert.equal(refreshCalls, 1);

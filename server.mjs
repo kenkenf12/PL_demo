@@ -2,8 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createFplClient } from './lib/fpl.mjs';
 import { createApiHandler, json, securityHeaders } from './lib/http.mjs';
-import { predictionHistory, seasonSnapshot } from './lib/node-storage.mjs';
+import { oddsSnapshots, predictionHistory, seasonSnapshot } from './lib/node-storage.mjs';
 import { predictionService } from './lib/predictions.mjs';
+import { createUkOddsComparison } from './lib/uk-odds.mjs';
+import { createUkOddsFeed } from './lib/uk-odds-feed.mjs';
 
 const files = new Map([
   ['/', ['index.html', 'text/html']],
@@ -14,7 +16,8 @@ const files = new Map([
 ]);
 
 const fpl = createFplClient(seasonSnapshot());
-const api = createApiHandler(fpl, predictionService(fpl, { history: predictionHistory(), ukOddsApiKey: process.env.UK_ODDS_API_KEY }));
+const odds = createUkOddsComparison(createUkOddsFeed(process.env.ODDS_API_KEY, { store: oddsSnapshots() }));
+const api = createApiHandler(fpl, predictionService(fpl, { history: predictionHistory(), odds }));
 
 async function send(response, result) {
   const body = await result.arrayBuffer();
