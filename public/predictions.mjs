@@ -66,6 +66,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   function squadView(record) {
     const { players, accuracy, shortlist } = record;
+    const previousWeek = record.gameweek - 1;
     const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
     const comparison = accuracy && accuracy.meanAbsoluteError != null
       ? `<p>Mean absolute error <strong>${forecast(accuracy.meanAbsoluteError)} pts/player</strong> · ${accuracy.comparedCount} compared · ${forecast(accuracy.predictedComparableTotal)} predicted, ${accuracy.actualComparableTotal} actual for those players.</p>` : '';
@@ -89,13 +90,17 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${coverage ? `<p class="prediction-caption">${html(coverage)}</p>` : ''}
       ${comparison}
       ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${shortlist ? 'Recent form shortlist' : 'Predicted 15-player squad'}">
-        <table><thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th><th scope="col">Price</th><th scope="col">Projected</th>
+        <table><thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th><th scope="col">Price</th>
+        ${previousWeek > 0 ? `<th scope="col" title="Official FPL points once the Gameweek is final">GW${previousWeek} actual points</th>` : ''}
+        <th scope="col">GW${record.gameweek} predicted points</th>
         <th scope="col" title="Uses the official scoring configuration and match breakdowns from the latest completed Gameweek before this one">FPL Rule-Based Predicted Points</th>
-        ${accuracy ? '<th scope="col">Actual</th>' : ''}</tr></thead>
+        ${accuracy ? `<th scope="col">GW${record.gameweek} actual points</th>` : ''}</tr></thead>
         <tbody>${players.map(player => `<tr><td><strong>${html(player.name)}</strong>
           ${player.id === record.captain ? '<span class="prediction-role">C</span>' : player.id === record.viceCaptain ? '<span class="prediction-role">VC</span>' : ''}
           ${player.evidence ? `<span class="player-meta">${player.evidence.domesticWeeks} PL weeks · ${player.evidence.cupMatches} domestic cup · ${player.evidence.europeanMatches ?? 0} UEFA club · ${player.evidence.internationalMatches} international</span>` : ''}</td>
-          <td>${html(player.team)}</td><td>${html(player.position)}</td><td>${price(player.cost)}</td><td>${forecast(player.predicted)}</td>
+          <td>${html(player.team)}</td><td>${html(player.position)}</td><td>${price(player.cost)}</td>
+          ${previousWeek > 0 ? `<td>${player.previousActualPoints ?? '—'}</td>` : ''}
+          <td>${forecast(player.predicted)}</td>
           <td>${forecast(player.fplRuleBasedPredictedPoints)}</td>
           ${accuracy ? `<td>${actual.get(player.id) ?? '—'}</td>` : ''}</tr>`).join('')}</tbody></table>
       </div>` : ''}

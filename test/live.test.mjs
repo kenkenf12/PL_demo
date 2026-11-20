@@ -160,6 +160,8 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
   const selected = refresh.previousWeek ? ['ranking', 'previous', 'recent'] : ['ranking', 'recent'];
   const fixtures = refresh.dashboard.fixtures.filter(fixture => fixture.event === target.id && !fixture.started && !fixture.finished);
   const previous = refresh.previousWeek ? await (await request(`/api/gameweeks/${refresh.previousWeek}/live`)).json() : null;
+  const exactPrevious = previous?.event === target.id - 1 ? previous : null;
+  const previousTotals = new Map(exactPrevious?.players.map(player => [player.id, player.total_points]));
   const results = [];
   let previousSource;
   for (const strategy of selected) {
@@ -167,11 +169,13 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     assert.equal(record.strategy, strategy);
     assert.equal(record.gameweek, target.id);
     assert.equal(record.weather, undefined);
+    assert.equal(record.previousActualWeek, exactPrevious?.event ?? null);
+    for (const player of record.players) assert.equal(player.previousActualPoints, previousTotals.get(player.id) ?? null);
     assert.ok(record.players.every(player => player.fplRuleBasedPredictedPoints === null
       || Number.isFinite(player.fplRuleBasedPredictedPoints)));
     if (strategy === 'ranking' || strategy === 'previous') {
       const original = predictSquad(refresh.dashboard, fixtures, strategy, strategy === 'previous' ? previous : null, null);
-      assert.deepEqual(record.players.map(({ fplRuleBasedPredictedPoints, ...player }) => player), original.players);
+      assert.deepEqual(record.players.map(({ fplRuleBasedPredictedPoints, previousActualPoints, ...player }) => player), original.players);
       for (const key of ['total', 'captain', 'viceCaptain', 'cost', 'projectedCount']) assert.equal(record[key], original[key]);
       if (previous && fixtures.length) {
         assert.ok(record.players.some(player => player.fplRuleBasedPredictedPoints != null));
@@ -239,6 +243,13 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     await request(`${scope}&strategy=ranking`, 409, 'POST');
     await request(`/api/predictions?gameweek=${past.id}&strategy=ranking&token=${closed.token}`, 409, 'POST');
   }
+  if (target.id < 38) {
+    const future = await (await request(`/api/prediction-data?gameweek=${target.id + 1}`, 200, 'POST')).json();
+    assert.equal(future.previousWeek, refresh.previousWeek);
+    const record = await (await request(`/api/predictions?gameweek=${future.week.id}&strategy=ranking&token=${future.token}`, 201, 'POST')).json();
+    assert.equal(record.previousActualWeek, null);
+    assert.ok(record.players.every(player => player.previousActualPoints === null));
+  }
 });
 
 test('ranks independent positive news without counting repeated, stale or misattributed coverage', () => {
@@ -275,9 +286,10 @@ test('ranks independent positive news without counting repeated, stale or misatt
 
 test('replays an official completed Gameweek to verify accuracy and independent strategy execution', async t => {
   const finished = season.events.filter(event => event.finished && event.data_checked);
-  if (finished.length < 2) return t.skip('The test needs two completed Gameweeks.');
-  const week = finished.at(-1);
-  const prior = finished.at(-2);
+  const finalByWeek = new Map(finished.map(event => [event.id, event]));
+  const week = finished.findLast(event => finalByWeek.has(event.id - 1));
+  if (!week) return t.skip('The test needs two consecutive completed Gameweeks.');
+  const prior = finalByWeek.get(week.id - 1);
   const events = season.events.map(event => event.id === week.id ? { ...event, finished: false, data_checked: false } : event);
   const fixtures = season.fixtures.map(fixture => fixture.event === week.id
     ? { ...fixture, started: false, finished: false, finished_provisional: false } : fixture);
@@ -313,8 +325,16 @@ test('replays an official completed Gameweek to verify accuracy and independent 
 
   snapshot = season;
   clock = Date.parse(week.deadline_time) + 10 * 86_400_000;
+  const { previousActualWeek, ...legacy } = ranking;
+  const legacyPlayers = legacy.players.map(({ previousActualPoints, ...player }) => player);
+  tracked[tracked.findIndex(record => record.id === ranking.id)] = { ...legacy, players: legacyPlayers };
   await service.refresh(week.id);
   const scored = (await service.history()).find(record => record.id === ranking.id);
+  const previousTotals = new Map(points.get(prior.id).players.map(record => [record.id, record.total_points]));
+  assert.equal(scored.previousActualWeek, prior.id);
+  assert.equal(previousActualWeek, prior.id);
+  assert.deepEqual(scored.players, ranking.players);
+  assert.ok(scored.players.every(player => player.previousActualPoints === (previousTotals.get(player.id) ?? null)));
   const results = new Map(points.get(week.id).players.map(record => [record.id, record.total_points]));
   assert.equal(scored.accuracy.actualCount, 15);
   assert.equal(scored.accuracy.actualTotal, scored.players.reduce((sum, player) => sum + results.get(player.id), 0));
