@@ -9,6 +9,7 @@ import { after, before, test } from 'node:test';
 import { captainOptions, makeModel, transferOptions } from '../public/model.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 import { rankNews } from '../lib/news-ranking.mjs';
+import { predictSquad } from '../lib/squad-prediction.mjs';
 
 let child;
 let base;
@@ -62,6 +63,7 @@ test('serves the dashboard and freshly retrieves a consistent current-season sna
   assert.equal(season.events.length, 38);
   assert.equal(season.fixtures.length, 380);
   assert.ok(season.players.length > 0);
+  assert.ok(Number.isInteger(season.scoring?.long_play));
   assert.ok(season.players.every(player => Number.isInteger(player.now_cost) && Number.isInteger(player.minutes)
     && Number.isInteger(player.total_points) && season.teams.some(team => team.id === player.team)));
   assertSource(season.sources[0], '/api/bootstrap-static/');
@@ -156,6 +158,8 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
   await request(`${scope}&strategy=weather`, 400, 'POST');
 
   const selected = refresh.previousWeek ? ['ranking', 'previous', 'recent'] : ['ranking', 'recent'];
+  const fixtures = refresh.dashboard.fixtures.filter(fixture => fixture.event === target.id && !fixture.started && !fixture.finished);
+  const previous = refresh.previousWeek ? await (await request(`/api/gameweeks/${refresh.previousWeek}/live`)).json() : null;
   const results = [];
   let previousSource;
   for (const strategy of selected) {
@@ -163,6 +167,17 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     assert.equal(record.strategy, strategy);
     assert.equal(record.gameweek, target.id);
     assert.equal(record.weather, undefined);
+    assert.ok(record.players.every(player => player.fplRuleBasedPredictedPoints === null
+      || Number.isFinite(player.fplRuleBasedPredictedPoints)));
+    if (strategy === 'ranking' || strategy === 'previous') {
+      const original = predictSquad(refresh.dashboard, fixtures, strategy, strategy === 'previous' ? previous : null, null);
+      assert.deepEqual(record.players.map(({ fplRuleBasedPredictedPoints, ...player }) => player), original.players);
+      for (const key of ['total', 'captain', 'viceCaptain', 'cost', 'projectedCount']) assert.equal(record[key], original[key]);
+      if (previous && fixtures.length) {
+        assert.ok(record.players.some(player => player.fplRuleBasedPredictedPoints != null));
+        assert.ok(record.sources.some(source => source.url.endsWith(`/event/${refresh.previousWeek}/live/`)));
+      }
+    }
     if (!record.shortlist) assertSquad(record);
     else {
       assert.equal(strategy, 'recent');
