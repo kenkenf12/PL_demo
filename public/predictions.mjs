@@ -2,7 +2,7 @@ import { forecast, price } from './model.mjs';
 
 const strategyName = {
   ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance',
-  recent: 'Recent Performance Form', 'match-winners': 'Rule 6 · Match Winners & Player Ranking'
+  recent: 'Recent Performance Form', 'match-winners': 'Match & Player'
 };
 const strategyLabel = strategy => strategyName[strategy] ?? (strategy === 'weather' ? 'Archived weather prediction' : strategy);
 const $ = selector => document.querySelector(selector);
@@ -16,19 +16,17 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
   const newsResult = $('#news-result');
-  const oddsResult = $('#odds-result');
   const history = $('#history-content');
   let ready;
   let busy = false;
   let records = [];
   let historyRequest = 0;
   const newsDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
-  const oddsPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 });
+  const percent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 }).format;
 
   function hideResults() {
     result.hidden = true;
     newsResult.hidden = true;
-    oddsResult.hidden = true;
   }
 
   function gameweeks(events) {
@@ -113,14 +111,13 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   function matchWinnerView(record) {
     const { matches, players, accuracy, sampleWeeks } = record;
     const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
-    const percent = value => oddsPercent.format(value);
     const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
     const coverage = sampleWeeks.length ? `Player form uses ${sampleWeeks.map(week => 'GW' + week).join(', ')}.`
       : 'Recent official player match data is unavailable.';
     return `<div class="prediction-result-head"><div><h3>Gameweek ${record.gameweek} · ${html(strategyLabel(record.strategy))}</h3>
       <p>${matches.filter(match => match.score).length}/${matches.length} fixtures forecast · ${record.completedMatches} completed matches in the team model</p></div>
       </div>
-      ${matches.length ? `<div class="scroll-table" tabindex="0" aria-label="Rule 6 match forecasts"><table>
+      ${matches.length ? `<div class="scroll-table" tabindex="0" aria-label="Match forecasts"><table>
         <thead><tr><th scope="col">Fixture</th><th scope="col">Predicted score</th><th scope="col">Predicted outcome</th>
           <th scope="col">Expected goals (H/A)</th><th scope="col">Home win</th><th scope="col">Draw</th><th scope="col">Away win</th>
           <th scope="col">Home clean sheet</th><th scope="col">Away clean sheet</th></tr></thead>
@@ -149,7 +146,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       <p class="prediction-caption">${players.length} ranked · ${record.candidateCount} unique candidates${record.total != null ? ` · ${record.total} projected points before captaincy` : ''}. Rankings use unrounded projections across the Gameweek.</p>
       ${record.incompleteCandidates ? `<p>${record.incompleteCandidates} candidates lacked forecasts for all of their fixtures.</p>` : ''}
       ${players.length < 15 ? '<p>Fewer than 15 players had sufficient data from predicted winning teams.</p>' : ''}
-      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="Rule 6 top players"><table>
+      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="Top ranked players"><table>
         <thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
           ${record.gameweek > 1 ? `<th scope="col">GW${record.gameweek - 1} actual points</th>` : ''}
           <th scope="col">Projected FPL points</th>${accuracy ? `<th scope="col">GW${record.gameweek} actual points</th>` : ''}</tr></thead>
@@ -185,45 +182,6 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${report.sources.length ? `<details class="provenance"><summary>Publisher feeds searched</summary><ul class="news-evidence">
         ${report.sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.publisher)}</a>
         <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
-  }
-
-  function oddsView(report) {
-    const { recommendations, coverage, provider } = report;
-    const messages = {
-      'missing-key': 'Set the server’s ODDS_API_KEY to see live bookmaker prices.',
-      'access-denied': 'The provider did not authorize this request. Check ODDS_API_KEY and the account’s market access.',
-      'rate-limited': 'The Odds API request limit was reached. Try again later.',
-      unavailable: 'The Odds API is temporarily unavailable. Try again later.',
-      'quota-paused': 'No saved comparable odds are available for this Gameweek.',
-      'no-fixtures': 'This Gameweek has no scheduled upcoming fixtures to compare.',
-      insufficient: 'There are no matching player prices from two UK bookmakers for the selected Gameweek.'
-    };
-    const paused = report.paused === 'low-credits' ? 'Live odds updates are paused because fewer than 10 credits remain.'
-      : report.paused === 'unverified' ? 'Live odds updates are paused until the provider confirms the remaining credits.' : '';
-    const savedMessage = recommendations.some(player => player.matches.some(fixture => fixture.saved))
-      ? ' Saved prices are shown where available.' : '';
-    const matched = (coverage.matched || report.status === 'ready')
-      ? `<p class="prediction-caption">${coverage.compared} of ${coverage.fixtures} fixtures with comparable quotes${coverage.singleBookPlayers ? ` · ${coverage.singleBookPlayers} players had only one bookmaker quote` : ''}</p>` : '';
-    const listing = recommendations.length ? `<p class="prediction-caption">Ranked by the median bookmaker-implied chance of scoring in a fixture, including bookmaker margin.</p>
-      <div class="scroll-table" tabindex="0" aria-label="UK bookmaker player comparisons"><table>
-      <thead><tr><th scope="col">Player</th><th scope="col">Fixture</th><th scope="col">Implied chance</th><th scope="col">UK bookmaker prices</th></tr></thead>
-      <tbody>${recommendations.map(player => {
-        const [primary] = player.matches;
-        return `<tr><td><strong>${html(player.name)}</strong><span class="player-meta">${html(player.team)}</span></td>
-          <td>${html(primary.home)} v ${html(primary.away)}<span class="player-meta">${sourceTime.format(new Date(primary.kickoff))}</span></td>
-          <td>${oddsPercent.format(primary.implied)}</td>
-          <td><details><summary>${primary.quotes.length} bookmakers · ${primary.quotes.at(-1).price.toFixed(2)}–${primary.quotes[0].price.toFixed(2)}</summary>
-          ${player.matches.map(fixture => `<div class="odds-quotes"><strong>${html(fixture.home)} v ${html(fixture.away)}</strong>
-            ${fixture.retrievedAt ? `<span class="player-meta">${fixture.saved ? 'Saved prices retrieved' : 'Prices retrieved'} ${sourceTime.format(new Date(fixture.retrievedAt))}</span>` : ''}
-            <ul class="news-evidence">${fixture.quotes.map(quote => `<li><span>${html(quote.bookmaker)}</span> <strong>${quote.price.toFixed(2)}</strong>
-              ${quote.updatedAt ? `<span>Updated ${sourceTime.format(new Date(quote.updatedAt))}</span>` : ''}</li>`).join('')}</ul>
-          </div>`).join('')}</details></td></tr>`;
-      }).join('')}</tbody></table></div>` : `<p>${html(messages[report.status])}</p>`;
-    return `<h3 id="odds-title">UK Betting Odds Comparison &amp; Player Selection</h3>
-      <p class="prediction-caption">Gameweek ${report.gameweek} · ${html(report.market)} · Decimal prices</p>
-      ${paused ? `<p role="status">${paused}${savedMessage}</p>` : ''}${matched}${listing}
-      ${report.sources.length ? `<details class="provenance"><summary>Odds data sources</summary>${sourceList(report.sources)}</details>` : ''}
-      <p class="prediction-caption">Odds data from <a href="${html(provider.url)}" target="_blank" rel="noopener">${html(provider.name)}</a></p>`;
   }
 
   function renderHistory() {
@@ -314,16 +272,15 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     try {
       const query = new URLSearchParams({ gameweek: week.value, strategy: strategy.value, token: ready.token });
       const record = await request(`/api/predictions?${query}`, 'POST');
-      if (record.strategy === 'news' || record.strategy === 'odds') {
-        const section = record.strategy === 'news' ? newsResult : oddsResult;
-        section.innerHTML = record.strategy === 'news' ? newsView(record) : oddsView(record);
-        section.hidden = false;
+      if (record.strategy === 'news') {
+        newsResult.innerHTML = newsView(record);
+        newsResult.hidden = false;
         showAnalysis('');
         return;
       }
       result.innerHTML = predictionView(record);
       result.hidden = false;
-      showAnalysis(record.id ? (record.strategy === 'match-winners' ? 'Rule 6 prediction saved.'
+      showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
         : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
       if (record.id) await loadHistory();
     } catch (error) {

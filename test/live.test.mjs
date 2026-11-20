@@ -31,8 +31,8 @@ function assertSource(source, path) {
 
 before(async () => {
   historyDir = await mkdtemp(join(tmpdir(), 'fpl-test-history-'));
-  child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, FPL_PORT: '0', FPL_HISTORY_DIR: historyDir,
-    ODDS_API_KEY: '' }, stdio: ['ignore', 'pipe', 'inherit'] });
+  child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, FPL_PORT: '0', FPL_HISTORY_DIR: historyDir },
+    stdio: ['ignore', 'pipe', 'inherit'] });
   const lines = createInterface({ input: child.stdout });
   try {
     const [line] = await once(lines, 'line', { signal: AbortSignal.timeout(10_000) });
@@ -55,6 +55,7 @@ test('serves the dashboard and freshly retrieves a consistent current-season sna
   const page = await (await request('/')).text();
   assert.match(page, /Personal FPL Assistant/);
   assert.doesNotMatch(page, /Weather Impact Prediction/);
+  assert.doesNotMatch(page, /UK Betting Odds|value="odds"/);
   await request('/app.mjs');
   const now = new Date();
   assert.equal(season.seasonYear, now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0));
@@ -233,12 +234,7 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
       && Date.parse(source.publishedAt) <= Date.parse(news.searchedAt) && source.url.startsWith('https://')));
   }
   assert.deepEqual(await (await request('/api/predictions')).json(), history);
-  const odds = await (await request(`${scope}&strategy=odds`, 201, 'POST')).json();
-  assert.equal(odds.strategy, 'odds');
-  assert.equal(odds.gameweek, target.id);
-  assert.equal(odds.status, 'missing-key');
-  assert.deepEqual(odds.recommendations, []);
-  assert.equal(odds.players, undefined);
+  await request(`${scope}&strategy=odds`, 400, 'POST');
   assert.deepEqual(await (await request('/api/predictions')).json(), history);
   const winners = await (await request(`${scope}&strategy=match-winners`, 201, 'POST')).json();
   assert.equal(winners.strategy, 'match-winners');

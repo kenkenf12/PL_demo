@@ -2,8 +2,6 @@ import { DurableObject } from 'cloudflare:workers';
 import { createFplClient } from './lib/fpl.mjs';
 import { createApiHandler, json, securityHeaders } from './lib/http.mjs';
 import { predictionService } from './lib/predictions.mjs';
-import { createUkOddsComparison } from './lib/uk-odds.mjs';
-import { createUkOddsFeed } from './lib/uk-odds-feed.mjs';
 
 const cookieName = '__Host-fpl_session';
 const sessionLifetime = 365 * 24 * 60 * 60;
@@ -30,20 +28,8 @@ function storedRecords(sql) {
   };
 }
 
-export class OddsFeed extends DurableObject {
-  constructor(ctx, env) {
-    super(ctx, env);
-    this.feed = createUkOddsFeed(env.ODDS_API_KEY, { store: storedRecords(ctx.storage.sql) });
-  }
-
-  listEvents() {
-    return this.feed.listEvents();
-  }
-
-  prices(eventIds) {
-    return this.feed.prices(eventIds);
-  }
-}
+// Preserve the class name registered by the existing Durable Object migration.
+export class OddsFeed extends DurableObject {}
 
 export class FplSession extends DurableObject {
   constructor(ctx, env) {
@@ -74,8 +60,7 @@ export class FplSession extends DurableObject {
     };
 
     const fpl = createFplClient(state('snapshot'));
-    const odds = createUkOddsComparison(env.ODDS_FEED.getByName('uk-epl'));
-    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh'), odds }));
+    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh') }));
   }
 
   fetch(request) {
