@@ -17,7 +17,7 @@ The Worker serves the dashboard and its `/api` routes from the same URL. An anon
 ## Predict a Gameweek squad
 
 1. Select a Gameweek, then click **Refresh FPL Data**. The page shows the time of the last successful refresh. Opening the dashboard reads the saved league snapshot locally.
-2. Select a strategy, then click **Analyse FPL Players**. The four squad strategies are **Current FPL Ranking**, **Previous Gameweek Performance**, **Weather Impact Prediction**, and **Recent Performance Form**. **News & Expert Opinion Analysis** returns a separate ranked list. Analysis is available before the Gameweek deadline.
+2. Select a strategy, then click **Analyse FPL Players**. The four squad strategies are **Current FPL Ranking**, **Previous Gameweek Performance**, **Weather Impact Prediction**, and **Recent Performance Form**. **News & Expert Opinion Analysis** and **UK Betting Odds Comparison & Player Selection** each return their own ranked list. Analysis is available before the Gameweek deadline.
 3. The squad fits the standard £100m budget and three-player club limit, with two goalkeepers, five defenders, five midfielders and three forwards. The total adds all 15 player forecasts before captaincy. A dash indicates insufficient scoring evidence.
 4. In **Prediction history**, compare saved results across strategies and Gameweeks. Click **Refresh FPL Data** after scoring is final to record actuals. Results report mean absolute error per player with both a forecast and an official result. The comparison uses the latest saved prediction per strategy and Gameweek. The local Node server saves predictions in `.fpl-data/predictions.json`.
 
@@ -26,6 +26,10 @@ Current ranking uses season points, playing time, and FPL form. Previous Gamewee
 **Recent Performance Form** weighs FPL points from up to three completed Gameweeks, using minutes and planned fixture difficulty to inform selection. It also checks recent FA Cup, League Cup, and senior international match reports from ESPN for verified appearances and on-field contributions. Supplemental results cover a rolling 14-day window, with priority given to teams with current FPL players. The app reuses the last completed Gameweek from the refresh and caches bulk results and reports. Each prediction shows its data coverage and sources.
 
 **News & Expert Opinion Analysis** searches the last seven days of coverage in The Guardian, BBC Sport, Sky Sports, The Independent and Fantasy Football Scout feeds. It matches current FPL players to positive coverage, counts at most one mention per publisher per player, and deduplicates repeated bylines and copied passages. Rankings use the independent mention count followed by the strength of the positive language. Each recommendation links to the dated article. This list is separate from squad points and prediction history.
+
+**UK Betting Odds Comparison & Player Selection** matches upcoming FPL fixtures to the same pre-match anytime goalscorer market from UK Odds API. It ranks eligible FPL players by the median implied chance from at least two UK sportsbooks per fixture. Each result shows the decimal prices, bookmakers and provider timestamp where supplied. The odds list is separate from squad points and prediction history. [UK Odds API market coverage](https://ukoddsapi.com/market-coverage)
+
+To enable live odds, set `UK_ODDS_API_KEY` in the environment that runs the app. For local Wrangler development, put the key in the git-ignored `.dev.vars` file. For a deployed Worker, add `UK_ODDS_API_KEY` as a Cloudflare secret or use `npx wrangler secret put UK_ODDS_API_KEY`. UK Odds API lists anytime goalscorer in its core package. Bookmaker coverage varies by plan and fixture. [UK Odds API quickstart](https://docs.ukoddsapi.com/getting-started/quickstart) · [Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
 
 ## Browse players and your public squad
 

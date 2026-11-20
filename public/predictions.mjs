@@ -16,16 +16,19 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
   const newsResult = $('#news-result');
+  const oddsResult = $('#odds-result');
   const history = $('#history-content');
   let ready;
   let busy = false;
   let records = [];
   let historyRequest = 0;
   const newsDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
+  const oddsPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 });
 
   function hideResults() {
     result.hidden = true;
     newsResult.hidden = true;
+    oddsResult.hidden = true;
   }
 
   function gameweeks(events) {
@@ -133,6 +136,39 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
   }
 
+  function oddsView(report) {
+    const { recommendations, coverage, provider } = report;
+    const messages = {
+      'missing-key': 'Configure the server’s UK Odds API key to see live bookmaker prices.',
+      'access-denied': 'The provider did not authorize this request. Check the server’s UK Odds API access.',
+      'rate-limited': 'The UK Odds API request limit was reached. Try again later.',
+      unavailable: 'The UK Odds API is temporarily unavailable. Try again later.',
+      'no-fixtures': 'This Gameweek has no scheduled upcoming fixtures to compare.',
+      insufficient: 'There are no matching player prices from two UK bookmakers for the selected Gameweek.'
+    };
+    const matched = (coverage.matched || report.status === 'ready')
+      ? `<p class="prediction-caption">${coverage.compared} of ${coverage.fixtures} fixtures with comparable quotes${coverage.singleBookPlayers ? ` · ${coverage.singleBookPlayers} players had only one bookmaker quote` : ''}</p>` : '';
+    const listing = recommendations.length ? `<p class="prediction-caption">Ranked by the median bookmaker-implied chance of scoring in a fixture, including bookmaker margin.</p>
+      <div class="scroll-table" tabindex="0" aria-label="UK bookmaker player comparisons"><table>
+      <thead><tr><th scope="col">Player</th><th scope="col">Fixture</th><th scope="col">Implied chance</th><th scope="col">UK bookmaker prices</th></tr></thead>
+      <tbody>${recommendations.map(player => {
+        const [primary] = player.matches;
+        return `<tr><td><strong>${html(player.name)}</strong><span class="player-meta">${html(player.team)}</span></td>
+          <td>${html(primary.home)} v ${html(primary.away)}<span class="player-meta">${sourceTime.format(new Date(primary.kickoff))}</span></td>
+          <td>${oddsPercent.format(primary.implied)}</td>
+          <td><details><summary>${primary.quotes.length} bookmakers · ${primary.quotes.at(-1).price.toFixed(2)}–${primary.quotes[0].price.toFixed(2)}</summary>
+          ${player.matches.map(fixture => `<div class="odds-quotes"><strong>${html(fixture.home)} v ${html(fixture.away)}</strong>
+            ${fixture.capturedAt ? `<span class="player-meta">Captured ${sourceTime.format(new Date(fixture.capturedAt))}</span>` : ''}
+            <ul class="news-evidence">${fixture.quotes.map(quote => `<li><span>${html(quote.bookmaker)}</span> <strong>${quote.price.toFixed(2)}</strong></li>`).join('')}</ul>
+          </div>`).join('')}</details></td></tr>`;
+      }).join('')}</tbody></table></div>` : `<p>${html(messages[report.status])}</p>`;
+    return `<h3 id="odds-title">UK Betting Odds Comparison &amp; Player Selection</h3>
+      <p class="prediction-caption">Gameweek ${report.gameweek} · ${html(report.market)} · Decimal prices</p>
+      ${matched}${listing}
+      ${report.sources.length ? `<details class="provenance"><summary>Odds data sources</summary>${sourceList(report.sources)}</details>` : ''}
+      <p class="prediction-caption">Odds data from <a href="${html(provider.url)}" target="_blank" rel="noopener">${html(provider.name)}</a></p>`;
+  }
+
   function renderHistory() {
     if (!records.length) {
       history.innerHTML = '<p class="empty">Saved squads will appear here. Refresh FPL after a Gameweek is final to record actual points.</p>';
@@ -220,9 +256,10 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     try {
       const query = new URLSearchParams({ gameweek: week.value, strategy: strategy.value, token: ready.token });
       const record = await request(`/api/predictions?${query}`, 'POST');
-      if (record.strategy === 'news') {
-        newsResult.innerHTML = newsView(record);
-        newsResult.hidden = false;
+      if (record.strategy === 'news' || record.strategy === 'odds') {
+        const section = record.strategy === 'news' ? newsResult : oddsResult;
+        section.innerHTML = record.strategy === 'news' ? newsView(record) : oddsView(record);
+        section.hidden = false;
         showAnalysis('');
         return;
       }

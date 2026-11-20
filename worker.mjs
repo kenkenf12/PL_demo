@@ -52,7 +52,7 @@ export class FplSession extends DurableObject {
     };
 
     const fpl = createFplClient(state('snapshot'));
-    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh') }));
+    this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh'), ukOddsApiKey: env.UK_ODDS_API_KEY }));
   }
 
   fetch(request) {

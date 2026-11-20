@@ -14,7 +14,7 @@ const files = new Map([
 ]);
 
 const fpl = createFplClient(seasonSnapshot());
-const api = createApiHandler(fpl, predictionService(fpl, { history: predictionHistory() }));
+const api = createApiHandler(fpl, predictionService(fpl, { history: predictionHistory(), ukOddsApiKey: process.env.UK_ODDS_API_KEY }));
 
 async function send(response, result) {
   const body = await result.arrayBuffer();

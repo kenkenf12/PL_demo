@@ -30,7 +30,8 @@ function assertSource(source, path) {
 
 before(async () => {
   historyDir = await mkdtemp(join(tmpdir(), 'fpl-test-history-'));
-  child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, FPL_PORT: '0', FPL_HISTORY_DIR: historyDir }, stdio: ['ignore', 'pipe', 'inherit'] });
+  child = spawn(process.execPath, ['server.mjs'], { env: { ...process.env, FPL_PORT: '0', FPL_HISTORY_DIR: historyDir,
+    UK_ODDS_API_KEY: '' }, stdio: ['ignore', 'pipe', 'inherit'] });
   const lines = createInterface({ input: child.stdout });
   try {
     const [line] = await once(lines, 'line', { signal: AbortSignal.timeout(10_000) });
@@ -208,6 +209,13 @@ test('requires a manual Gameweek refresh and saves each requested strategy with 
     assert.ok(recommendation.sources.every(source => Date.parse(source.publishedAt) >= Date.parse(news.since)
       && Date.parse(source.publishedAt) <= Date.parse(news.searchedAt) && source.url.startsWith('https://')));
   }
+  assert.deepEqual(await (await request('/api/predictions')).json(), history);
+  const odds = await (await request(`${scope}&strategy=odds`, 201, 'POST')).json();
+  assert.equal(odds.strategy, 'odds');
+  assert.equal(odds.gameweek, target.id);
+  assert.equal(odds.status, 'missing-key');
+  assert.deepEqual(odds.recommendations, []);
+  assert.equal(odds.players, undefined);
   assert.deepEqual(await (await request('/api/predictions')).json(), history);
   t.diagnostic(`News coverage: ${news.coverage.publishers} publishers, ${news.coverage.articles} recent articles, ${news.recommendations.length} recommended players`);
   const past = season.events.find(event => event.finished && event.data_checked);
