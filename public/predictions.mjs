@@ -2,7 +2,7 @@ import { forecast, price } from './model.mjs';
 
 const strategyName = {
   ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance',
-  recent: 'Recent Performance Form'
+  recent: 'Recent Performance Form', 'match-winners': 'Rule 6 · Match Winners & Player Ranking'
 };
 const strategyLabel = strategy => strategyName[strategy] ?? (strategy === 'weather' ? 'Archived weather prediction' : strategy);
 const $ = selector => document.querySelector(selector);
@@ -110,6 +110,64 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
   }
 
+  function matchWinnerView(record) {
+    const { matches, players, accuracy, sampleWeeks } = record;
+    const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
+    const percent = value => oddsPercent.format(value);
+    const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
+    const coverage = sampleWeeks.length ? `Player form uses ${sampleWeeks.map(week => 'GW' + week).join(', ')}.`
+      : 'Recent official player match data is unavailable.';
+    return `<div class="prediction-result-head"><div><h3>Gameweek ${record.gameweek} · ${html(strategyLabel(record.strategy))}</h3>
+      <p>${matches.filter(match => match.score).length}/${matches.length} fixtures forecast · ${record.completedMatches} completed matches in the team model</p></div>
+      </div>
+      ${matches.length ? `<div class="scroll-table" tabindex="0" aria-label="Rule 6 match forecasts"><table>
+        <thead><tr><th scope="col">Fixture</th><th scope="col">Predicted score</th><th scope="col">Predicted outcome</th>
+          <th scope="col">Expected goals (H/A)</th><th scope="col">Home win</th><th scope="col">Draw</th><th scope="col">Away win</th>
+          <th scope="col">Home clean sheet</th><th scope="col">Away clean sheet</th></tr></thead>
+        <tbody>${matches.map(match => `<tr><td><strong>${matchup(match)}</strong>
+          ${match.kickoff ? `<span class="player-meta">${sourceTime.format(new Date(match.kickoff))}</span>` : ''}</td>
+          ${match.score ? `<td><strong>${match.score.home}–${match.score.away}</strong>
+          <span class="player-meta">${percent(match.score.probability)} exact-score chance</span></td>
+          <td>${match.winner ? html(match.winner.name) : 'Draw'}${match.uncertain ? '<span class="player-meta">Low confidence</span>' : ''}</td>
+          <td>${forecast(match.home.expectedGoals)} / ${forecast(match.away.expectedGoals)}</td>
+          <td>${percent(match.probabilities.home)}</td><td>${percent(match.probabilities.draw)}</td><td>${percent(match.probabilities.away)}</td>
+          ${[match.home, match.away].map(team => `<td>${percent(team.cleanSheetProbability)}${team.cleanSheet ? '<span class="player-meta">Predicted clean sheet</span>' : ''}</td>`).join('')}`
+          : `<td colspan="8">${html(match.reason)}</td>`}</tr>`).join('')}</tbody>
+      </table></div>` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      <h4>Picks by predicted winner</h4>
+      <p class="prediction-caption">${html(coverage)}${record.requestedWeeks > sampleWeeks.length ? ' Coverage is partial.' : ''}</p>
+      ${matches.some(match => match.winner) ? matches.filter(match => match.winner).map(match =>
+        `<details class="provenance"><summary>${matchup(match)} · ${match.picks.length}/4 picks for ${html(match.winner.name)}</summary>
+        ${match.missingPositions.length ? `<p>Insufficient player data for ${html(match.missingPositions.join(', '))}.</p>` : ''}
+        ${match.picks.length ? `<div class="scroll-table" tabindex="0" aria-label="Predicted winning team picks"><table>
+          <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
+          <th scope="col">Start chance</th><th scope="col">Expected minutes</th><th scope="col">Projected FPL points</th></tr></thead>
+          <tbody>${match.picks.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td><td>${html(player.position)}</td>
+          <td>${percent(player.startProbability)}</td><td>${player.expectedMinutes}</td><td>${player.predicted}</td></tr>`).join('')}</tbody>
+        </table></div>` : ''}</details>`).join('') : '<p>No fixture has a predicted winner.</p>'}
+      <h4>Top 15 player ranking</h4>
+      <p class="prediction-caption">${players.length} ranked · ${record.candidateCount} unique candidates${record.total != null ? ` · ${record.total} projected points before captaincy` : ''}. Rankings use unrounded projections across the Gameweek.</p>
+      ${record.incompleteCandidates ? `<p>${record.incompleteCandidates} candidates lacked forecasts for all of their fixtures.</p>` : ''}
+      ${players.length < 15 ? '<p>Fewer than 15 players had sufficient data from predicted winning teams.</p>' : ''}
+      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="Rule 6 top players"><table>
+        <thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
+          ${record.gameweek > 1 ? `<th scope="col">GW${record.gameweek - 1} actual points</th>` : ''}
+          <th scope="col">Projected FPL points</th>${accuracy ? `<th scope="col">GW${record.gameweek} actual points</th>` : ''}</tr></thead>
+        <tbody>${players.map((player, index) => `<tr><td>${index + 1}</td><td><strong>${html(player.name)}</strong>
+          ${player.id === record.captain ? '<span class="prediction-role">Captain</span>'
+            : player.id === record.viceCaptain ? '<span class="prediction-role">Vice-captain</span>' : ''}</td>
+          <td>${html(player.team)}</td><td>${html(player.position)}</td>
+          ${record.gameweek > 1 ? `<td>${player.previousActualPoints ?? '—'}</td>` : ''}
+          <td>${player.predicted}</td>${accuracy ? `<td>${actual.get(player.id) ?? '—'}</td>` : ''}</tr>`).join('')}</tbody>
+      </table></div>` : ''}
+      <details class="provenance"><summary>Prediction data sources</summary>${sourceList(record.sources)}
+        <p><a href="https://fantasy.premierleague.com/en/help/rules" target="_blank" rel="noopener">Official FPL scoring rules</a></p>
+      </details>
+      ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
+  }
+
+  const predictionView = record => record.strategy === 'match-winners' ? matchWinnerView(record) : squadView(record);
+
   function newsView(report) {
     const { recommendations, coverage } = report;
     const listing = recommendations.length ? `<ol class="news-picks">${recommendations.map(pick => `<li>
@@ -178,7 +236,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       const key = `${record.seasonYear}:${record.gameweek}:${record.strategy}`;
       if (!latest.has(key)) latest.set(key, record);
     }
-    const comparison = Object.entries(strategyName).map(([key, label]) => {
+    const comparison = Object.entries(strategyName).filter(([key]) => key !== 'match-winners' || records.some(record => record.strategy === key))
+      .map(([key, label]) => {
       const scored = [...latest.values()].filter(record => record.strategy === key && record.accuracy?.meanAbsoluteError != null);
       const samples = scored.reduce((sum, record) => sum + record.accuracy.comparedCount, 0);
       const error = samples ? scored.reduce((sum, record) => sum + record.accuracy.meanAbsoluteError * record.accuracy.comparedCount, 0) / samples : null;
@@ -193,8 +252,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
           const { accuracy } = record;
           return `<tr><td>${record.seasonYear}/${String(record.seasonYear + 1).slice(-2)} · GW${record.gameweek}</td>
             <td>${html(strategyLabel(record.strategy))}${record.shortlist ? `<span class="player-meta">${record.players.length}-player shortlist</span>` : ''}</td>
-            <td>${sourceTime.format(new Date(record.createdAt))}</td><td>${forecast(record.total)}${record.projectedCount < record.players.length ? ` (${record.projectedCount}/${record.players.length})` : ''}</td>
-            <td>${accuracy ? `${accuracy.actualTotal}${accuracy.actualCount < record.players.length ? ` (${accuracy.actualCount}/${record.players.length})` : ''}` : 'Pending'}</td>
+            <td>${sourceTime.format(new Date(record.createdAt))}</td><td>${record.strategy === 'match-winners' ? record.total ?? '—' : forecast(record.total)}${record.projectedCount < record.players.length ? ` (${record.projectedCount}/${record.players.length})` : ''}</td>
+            <td>${accuracy ? `${accuracy.actualTotal}${accuracy.actualCount < record.players.length ? ` (${accuracy.actualCount}/${record.players.length})` : ''}` : record.players.length ? 'Pending' : '—'}</td>
             <td>${forecast(accuracy?.meanAbsoluteError)}${accuracy && accuracy.comparedCount < record.players.length ? ` (${accuracy.comparedCount}/${record.players.length})` : ''}</td>
             <td><button type="button" class="text-button" data-saved-prediction="${html(record.id)}">View</button></td></tr>`;
         }).join('')}</tbody></table></div>`;
@@ -262,9 +321,10 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         showAnalysis('');
         return;
       }
-      result.innerHTML = squadView(record);
+      result.innerHTML = predictionView(record);
       result.hidden = false;
-      showAnalysis(record.id ? (record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
+      showAnalysis(record.id ? (record.strategy === 'match-winners' ? 'Rule 6 prediction saved.'
+        : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
       if (record.id) await loadHistory();
     } catch (error) {
       showAnalysis(error.message);
@@ -276,7 +336,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   history.addEventListener('click', event => {
     const button = event.target.closest('[data-saved-prediction]');
     const record = records.find(item => item.id === button?.dataset.savedPrediction);
-    if (record) openDialog('Saved prediction', squadView(record));
+    if (record) openDialog('Saved prediction', predictionView(record));
   });
 
   gameweeks(Array.from({ length: 38 }, (_, index) => ({ id: index + 1, name: `Gameweek ${index + 1}` })));

@@ -240,6 +240,34 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
   assert.deepEqual(odds.recommendations, []);
   assert.equal(odds.players, undefined);
   assert.deepEqual(await (await request('/api/predictions')).json(), history);
+  const winners = await (await request(`${scope}&strategy=match-winners`, 201, 'POST')).json();
+  assert.equal(winners.strategy, 'match-winners');
+  assert.equal(winners.gameweek, target.id);
+  assert.deepEqual(winners.matches.map(match => match.id), fixtures.map(fixture => fixture.id));
+  for (const match of winners.matches) {
+    if (!match.score) {
+      assert.ok(match.reason);
+      continue;
+    }
+    const { home, draw, away } = match.probabilities;
+    assert.ok(Math.abs(home + draw + away - 1) < 1e-12);
+    if (match.score.home === match.score.away) {
+      assert.equal(match.winner, null);
+      assert.deepEqual(match.picks, []);
+    } else {
+      assert.equal(match.winner.id, match.score.home > match.score.away ? match.home.id : match.away.id);
+      assert.equal(match.picks.length + match.missingPositions.length, 4);
+      assert.equal(new Set(match.picks.map(player => player.positionCode)).size, match.picks.length);
+      assert.ok(match.picks.every(player => player.teamId === match.winner.id && Number.isInteger(player.predicted)));
+    }
+  }
+  assert.ok(winners.players.length <= 15 && winners.players.every(player => Number.isInteger(player.predicted)));
+  assert.equal(winners.captain, winners.players[0]?.id ?? null);
+  assert.equal(winners.viceCaptain, winners.players[1]?.id ?? null);
+  if (winners.id) {
+    const saved = await (await request('/api/predictions')).json();
+    assert.deepEqual(saved.find(record => record.id === winners.id), winners);
+  }
   t.diagnostic(`News coverage: ${news.coverage.publishers} publishers, ${news.coverage.articles} recent articles, ${news.recommendations.length} recommended players`);
   const past = season.events.find(event => event.finished && event.data_checked);
   if (past) {
