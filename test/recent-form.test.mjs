@@ -17,7 +17,8 @@ test('recent form selects verified non-EPL participants and excludes unused or E
     fixtures: [{ ...fixture, id: 2, event: 10, finished: true }, fixture],
     events: [{ id: 10, finished: true, data_checked: true }, { id: 11 }] };
   const previous = { event: 10, players: players.map(player => ({ id: player.id, minutes: 90, starts: 1,
-    expected_goals: '0', assists: 0, clean_sheets: 0, total_points: player.total_points })), sources: [] };
+    expected_goals: '0', assists: 0, clean_sheets: 0, total_points: player.total_points,
+    scoringMatches: [{ fixture: 2, minutes: 90 }] })), sources: [] };
   const club = { id: '21', displayName: 'Test City', abbreviation: 'TST' };
   const nation = { id: '22', displayName: 'England', abbreviation: 'ENG' };
   const status = { type: { completed: true } };

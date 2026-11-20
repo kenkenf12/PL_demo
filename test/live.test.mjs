@@ -307,6 +307,7 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   let formCalls = 0;
   const service = predictionService({
     getDashboard: async () => { refreshCalls += 1; return snapshot; },
+    getPlayer: async id => (await request(`/api/players/${id}`)).json(),
     getLive: async id => { liveCalls += 1; return points.get(id); }
   }, {
     now: () => clock,

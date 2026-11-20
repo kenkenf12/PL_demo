@@ -11,9 +11,10 @@ const players = positionIds.map((element_type, index) => ({
   status: 'a', now_cost: 50, minutes: 90, starts: 1, form: '3', total_points: 10 + index,
   expected_goals: '1', expected_assists: '0.5', clean_sheets: 1
 }));
+const match = { minutes: 90, clean_sheets: 1, saves: 0, goals_conceded: 0, defensive_contribution: 0, yellow_cards: 0, red_cards: 0 };
 const priorPlayers = players.map((player, index) => ({
   id: player.id, minutes: 90, starts: 1, expected_goals: '0.25', expected_assists: '0.25',
-  expected_goal_involvements: '0.5', clean_sheets: 0, total_points: index
+  expected_goal_involvements: '0.5', clean_sheets: 0, total_points: index, scoringMatches: [{ ...match, clean_sheets: 0 }]
 })).reverse();
 const prior = { event: gameweek - 1, players: priorPlayers, sources: [{ url: 'https://fpl.example/gameweek/7' }] };
 const events = [
@@ -26,8 +27,11 @@ const form = async () => ({
     points: 5, minutes: 90, matchWeight: 1, domesticWeeks: 1, cupMatches: 1
   }])),
   ruleBased: Object.fromEntries(players.map(player => [player.id, {
-    goals_scored: { total: 2, weight: 1 }, assists: { total: 1, weight: 1 }
+    goals_scored: { total: 2, weight: 1 }, assists: { total: 1, weight: 1 }, clean_sheets: { total: 1, weight: 1 },
+    long_play: { total: 1, weight: 1 }, short_play: { total: 0, weight: 1 }, saves: { total: 0, weight: 1 },
+    goals_conceded: { total: 0, weight: 1 }, defensive_contribution: { total: 0, weight: 1 }, yellow_cards: { total: 0, weight: 1 }
   }])),
+  usesMatchScoringRules: true,
   summary: { domesticWeeks: [7], requestedWeeks: 1, europeanReports: 0, days: 1, expectedDays: 1, reports: 1, requested: 1 },
   sources: []
 });
@@ -38,10 +42,15 @@ function serviceFor(difficulty, report = prior, saved = []) {
     team_h_difficulty: id === gameweek ? difficulty : 3, team_a_difficulty: id === gameweek ? difficulty : 3
   })));
   const dashboard = { seasonYear: 2026, fixtures, events, teams, players, sources: [],
-    scoring: { long_play: 2, short_play: 1, goals_scored: 5, assists: 3, clean_sheets: 2 },
+    scoring: { long_play: 2, short_play: 1, goals_scored: 5, assists: 3, clean_sheets: 2,
+      saves: 1, goals_conceded: -1, defensive_contribution: 2, yellow_cards: -1 },
     positions: [...new Set(positionIds)].map(id => ({ id, singular_name: `Position ${id}`, singular_name_short: String(id) })) };
   return predictionService({
     getDashboard: async () => dashboard,
+    getPlayer: async id => {
+      const club = players.find(player => player.id === id).team;
+      return { history: [{ ...match, fixture: (gameweek - 1) * 10 + (club % 2 ? club : club - 1) }], sources: [] };
+    },
     getLive: async id => {
       assert.equal(id, gameweek - 1);
       return report;
