@@ -172,7 +172,7 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     assert.equal(record.previousActualWeek, exactPrevious?.event ?? null);
     for (const player of record.players) assert.equal(player.previousActualPoints, previousTotals.get(player.id) ?? null);
     assert.ok(record.players.every(player => player.predictedFplRuleBasedPoints === null
-      || Number.isFinite(player.predictedFplRuleBasedPoints)));
+      || Number.isInteger(player.predictedFplRuleBasedPoints)));
     assert.ok(record.players.every(player => !Object.hasOwn(player, 'fplRuleBasedHistoricalBenchmark')));
     assert.ok(record.players.every(player => !Object.hasOwn(player, 'fplRuleBasedPredictedPoints')));
     if (strategy === 'ranking' || strategy === 'previous') {

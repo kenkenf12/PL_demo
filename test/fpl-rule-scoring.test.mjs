@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ruleBasedMatchUnits, ruleBasedRateSample, withRuleBasedPredictions } from '../lib/fpl-rule-scoring.mjs';
+import { roundRuleBasedPoints, ruleBasedMatchUnits, ruleBasedRateSample, withRuleBasedPredictions } from '../lib/fpl-rule-scoring.mjs';
 
 const scoring = {
   long_play: 2, short_play: 1, goals_scored: { DEF: 6, GKP: 10 }, assists: 3,
@@ -29,7 +29,7 @@ test('applies position scoring weights to season stats for the selected fixture'
   const appearanceAndOther = 6 * 2 + 2 * 1 - 1;
   const attackAndCleanSheets = 2 * 6 + 1 * 3 + 3 * 4;
   const expected = (appearanceAndOther + attackAndCleanSheets * 1.04) / 6;
-  assert.ok(Math.abs(result.predictedFplRuleBasedPoints - expected) < 1e-12);
+  assert.equal(result.predictedFplRuleBasedPoints, Math.round(expected));
   const goalkeeper = { ...dashboard, players: [{ ...player, element_type: 1 }] };
   assert.ok(projection(goalkeeper) > projection(dashboard));
   const { predictedFplRuleBasedPoints, ...original } = result;
@@ -43,10 +43,15 @@ test('responds to fixtures and availability independently of past score totals',
   assert.equal(projection(dashboard, [fixture, fixture]), normal * 2);
   assert.equal(projection(dashboard, []), 0);
   const halfChance = { ...dashboard, players: [{ ...player, chance_of_playing_next_round: 50 }] };
-  assert.equal(projection(halfChance), normal / 2);
+  assert.equal(projection(halfChance), 3);
+  assert.equal(projection(halfChance, [fixture, fixture]), 7);
   const revised = { ...dashboard, players: [{ ...player, total_points: -1000, saves: 0 }] };
   const [result] = withRuleBasedPredictions([{ ...selected, previousActualPoints: -999 }], revised, [fixture], { histories });
   assert.equal(result.predictedFplRuleBasedPoints, normal);
+});
+
+test('rounds final forecast totals to whole points and preserves missing data', () => {
+  assert.deepEqual([4.49, 4.5, -1.5, -0.4, 0, null].map(roundRuleBasedPoints), [4, 5, -2, 0, 0, null]);
 });
 
 test('marks missing rules or playing-time evidence as unavailable', () => {

@@ -77,9 +77,10 @@ test('the original and rule-based forecasts respond to selected fixtures while a
       assert.equal(player.previousActualPoints, expectedActual);
       const original = beforeById.get(player.id);
       assert.ok(Math.abs(player.predicted - original.predicted * 0.76 / 1.2) < 1e-9);
-      assert.ok(player.predictedFplRuleBasedPoints < original.predictedFplRuleBasedPoints);
-      assert.ok(Number.isFinite(player.predictedFplRuleBasedPoints));
+      assert.ok(player.predictedFplRuleBasedPoints <= original.predictedFplRuleBasedPoints);
+      assert.ok(Number.isInteger(player.predictedFplRuleBasedPoints));
     }
+    assert.ok(after.players.some(player => player.predictedFplRuleBasedPoints < beforeById.get(player.id).predictedFplRuleBasedPoints));
   }
   await assert.rejects(easy.analyse(gameweek + 1, 'ranking', easyRefresh.token), { status: 409 });
 });
@@ -98,7 +99,7 @@ test('rule-based points use the selected strategy independently of historical to
     assert.deepEqual(points(a), points(b));
     assert.deepEqual(new Set(points(a).keys()), targets);
     for (const [id, forecast] of points(a)) {
-      assert.ok(Number.isFinite(forecast));
+      assert.ok(Number.isInteger(forecast));
       byPlayer.get(id).push(forecast);
     }
     assert.ok(b.players.every(player => player.previousActualPoints === 99));
@@ -120,12 +121,12 @@ test('ranking forecasts stay independent from prior totals and reject reports fo
   assert.ok(after.forecast.players.every(player => player.previousActualPoints === 99));
   assert.equal(wrongWeek.ready.previousWeek, null);
   assert.ok(wrongWeek.forecast.players.every(player => player.previousActualPoints === null
-    && Number.isFinite(player.predictedFplRuleBasedPoints)));
+    && Number.isInteger(player.predictedFplRuleBasedPoints)));
   assert.deepEqual(forecasts(before.forecast), forecasts(wrongWeek.forecast));
   await assert.rejects(mismatch.analyse(gameweek, 'previous', wrongWeek.ready.token), { status: 409 });
 });
 
-test('saved results retain original forecasts without relabeling old replay scores as predictions', async () => {
+test('history displays whole rule-based points without changing the stored forecasts', async () => {
   const player = { id: 103, predicted: 4.6, previousActualPoints: 7, fplRuleBasedPredictedPoints: 7 };
   const saved = [{ id: 'saved', gameweek, players: [player] },
     { id: 'benchmark', gameweek, players: [{ id: 103, predicted: 4.6, previousActualPoints: 7, fplRuleBasedHistoricalBenchmark: 7 }] },
@@ -133,6 +134,8 @@ test('saved results retain original forecasts without relabeling old replay scor
   const [record, benchmark, current] = await serviceFor(3, prior, saved).history();
   assert.deepEqual(record.players, [{ id: 103, predicted: 4.6, previousActualPoints: 7 }]);
   assert.deepEqual(benchmark.players, record.players);
-  assert.equal(current.players[0].predictedFplRuleBasedPoints, 4.5);
+  assert.equal(current.players[0].predictedFplRuleBasedPoints, 5);
+  assert.equal(current.players[0].predicted, 4.6);
+  assert.equal(saved[2].players[0].predictedFplRuleBasedPoints, 4.5);
   assert.equal(saved[0].players[0].fplRuleBasedPredictedPoints, 7);
 });
