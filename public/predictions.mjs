@@ -15,11 +15,18 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const refreshStatus = $('#refresh-status');
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
+  const newsResult = $('#news-result');
   const history = $('#history-content');
   let ready;
   let busy = false;
   let records = [];
   let historyRequest = 0;
+  const newsDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
+
+  function hideResults() {
+    result.hidden = true;
+    newsResult.hidden = true;
+  }
 
   function gameweeks(events) {
     const selected = week.value;
@@ -107,6 +114,25 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
   }
 
+  function newsView(report) {
+    const { recommendations, coverage } = report;
+    const listing = recommendations.length ? `<ol class="news-picks">${recommendations.map(pick => `<li>
+      <div class="news-pick-heading"><strong>${html(pick.name)}</strong>
+        <span>${pick.count} independent positive ${pick.count === 1 ? 'mention' : 'mentions'} · ${html(pick.sentiment)}</span></div>
+      <p>${html(pick.explanation)}</p>
+      <ul class="news-evidence">${pick.sources.map(source => `<li>
+        <strong>${html(source.publisher)}</strong> · <time datetime="${html(source.publishedAt)}">${newsDate.format(new Date(source.publishedAt))}</time>
+        <a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.title)}</a>
+      </li>`).join('')}</ul></li>`).join('')}</ol>`
+      : `<p>${coverage.publishers ? 'No verified positive player mentions in the last seven days.' : 'Publisher feeds are unavailable. Try analysing again.'}</p>`;
+    return `<h3 id="news-title">News &amp; Expert Opinion Analysis</h3>
+      <p class="prediction-caption">${newsDate.format(new Date(report.since))} to ${newsDate.format(new Date(report.searchedAt))} · ${coverage.articles} articles from ${coverage.publishers} of ${coverage.expectedPublishers} publishers</p>
+      ${listing}
+      ${report.sources.length ? `<details class="provenance"><summary>Publisher feeds searched</summary><ul class="news-evidence">
+        ${report.sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.publisher)}</a>
+        <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
+  }
+
   function renderHistory() {
     if (!records.length) {
       history.innerHTML = '<p class="empty">Saved squads will appear here. Refresh FPL after a Gameweek is final to record actual points.</p>';
@@ -154,13 +180,13 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   week.addEventListener('change', () => {
     ready = null;
     strategy.value = '';
-    result.hidden = true;
+    hideResults();
     showAnalysis('');
     refreshStatus.textContent = week.value ? `Refresh official FPL data for Gameweek ${week.value}.` : 'Select a Gameweek to start.';
     updateControls();
   });
   strategy.addEventListener('change', () => {
-    result.hidden = true;
+    hideResults();
     showAnalysis(strategy.value === 'previous' && !ready.previousWeek
       ? ready.previousError ?? 'There is no previous completed Gameweek to analyse.' : '');
     updateControls();
@@ -173,7 +199,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     try {
       ready = await request(`/api/prediction-data?gameweek=${week.value}`, 'POST');
       strategy.value = '';
-      result.hidden = true;
+      hideResults();
       showSnapshot(ready.dashboard);
       onRefresh(ready.dashboard);
       const closed = ready.week.finished || Date.parse(ready.week.deadline_time) <= Date.now();
@@ -188,12 +214,18 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   });
   analyse.addEventListener('click', async () => {
     busy = true;
-    result.hidden = true;
+    hideResults();
     showAnalysis(`Analysing Gameweek ${week.value}…`);
     updateControls();
     try {
       const query = new URLSearchParams({ gameweek: week.value, strategy: strategy.value, token: ready.token });
       const record = await request(`/api/predictions?${query}`, 'POST');
+      if (record.strategy === 'news') {
+        newsResult.innerHTML = newsView(record);
+        newsResult.hidden = false;
+        showAnalysis('');
+        return;
+      }
       result.innerHTML = squadView(record);
       result.hidden = false;
       showAnalysis('Squad prediction saved.');

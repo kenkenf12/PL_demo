@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { after, before, test } from 'node:test';
 import { captainOptions, makeModel, transferOptions } from '../public/model.mjs';
 import { predictionService } from '../lib/predictions.mjs';
+import { rankNews } from '../lib/news-ranking.mjs';
 
 let child;
 let base;
@@ -196,12 +197,57 @@ test('requires a manual Gameweek refresh and saves each requested strategy with 
   }
   const history = await (await request('/api/predictions')).json();
   assert.ok(results.every(id => history.some(record => record.id === id)));
+  const news = await (await request(`${scope}&strategy=news`, 201, 'POST')).json();
+  assert.equal(news.strategy, 'news');
+  assert.equal(news.gameweek, target.id);
+  assert.equal(news.players, undefined);
+  assert.equal(Date.parse(news.searchedAt) - Date.parse(news.since), 7 * 86_400_000);
+  for (const recommendation of news.recommendations) {
+    assert.ok(season.players.some(player => player.id === recommendation.playerId));
+    assert.equal(recommendation.count, new Set(recommendation.sources.map(source => source.publisher)).size);
+    assert.ok(recommendation.sources.every(source => Date.parse(source.publishedAt) >= Date.parse(news.since)
+      && Date.parse(source.publishedAt) <= Date.parse(news.searchedAt) && source.url.startsWith('https://')));
+  }
+  assert.deepEqual(await (await request('/api/predictions')).json(), history);
+  t.diagnostic(`News coverage: ${news.coverage.publishers} publishers, ${news.coverage.articles} recent articles, ${news.recommendations.length} recommended players`);
   const past = season.events.find(event => event.finished && event.data_checked);
   if (past) {
     const closed = await (await request(`/api/prediction-data?gameweek=${past.id}`, 200, 'POST')).json();
     await request(`${scope}&strategy=ranking`, 409, 'POST');
     await request(`/api/predictions?gameweek=${past.id}&strategy=ranking&token=${closed.token}`, 409, 'POST');
   }
+});
+
+test('ranks independent positive news without counting repeated, stale or misattributed coverage', () => {
+  const [target, other, uncovered] = season.players.filter(player => player.first_name && player.second_name
+    && player.first_name !== player.second_name).slice(0, 3);
+  const fullName = player => `${player.first_name} ${player.second_name}`;
+  const name = fullName(target);
+  const otherName = fullName(other);
+  const now = Date.now();
+  const week = 7 * 86_400_000;
+  const makeArticle = (publisher, text, author, published = now - 10_000) => ({
+    publisher, publisherName: publisher, url: `https://${publisher}.example/football`, title: 'Match analysis', description: '',
+    sections: [{ text }], authors: [author], published, retrievedAt: new Date(now).toISOString()
+  });
+  const shared = `${name} is in excellent form and has consistently created chances for teammates.`;
+  const stories = [
+    makeArticle('paper-a', shared, 'Writer One'),
+    makeArticle('paper-a', `${name} was outstanding at the weekend.`, 'Writer Two', now - 11_000),
+    makeArticle('syndicate', shared, 'Different Byline', now - 20_000),
+    makeArticle('guest-column', `${name} made an impressive return to action.`, 'Writer One', now - 25_000),
+    makeArticle('pundit', `${name} is a strong captaincy pick.`, 'Writer Three'),
+    makeArticle('archive', `${otherName} is a must-have.`, 'Writer Four', now - week - 1),
+    makeArticle('future', `${otherName} was outstanding.`, 'Writer Five', now + 1),
+    makeArticle('negative', `${otherName} is not an outstanding option.`, 'Writer Six'),
+    makeArticle('quote', `${otherName} said the manager is brilliant.`, 'Writer Seven')
+  ];
+  const result = rankNews(stories, [target, other, uncovered], now - week, now);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].playerId, target.id);
+  assert.equal(result[0].count, 2);
+  assert.equal(result[0].sentiment, 'Strong positive');
+  assert.deepEqual(result[0].sources.map(source => source.publisher), ['pundit', 'paper-a']);
 });
 
 test('replays an official completed Gameweek to verify accuracy and independent strategy execution', async t => {

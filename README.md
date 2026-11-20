@@ -4,7 +4,7 @@ The dashboard ranks players, shows upcoming fixtures and recent match history, a
 
 ## Run
 
-Install Node.js 22 or later, then run `npm start` and open [the local assistant](http://127.0.0.1:3000/). The process needs HTTPS access to `fantasy.premierleague.com`. The port can be changed with `FPL_PORT`.
+Install Node.js 22 or later, run `npm ci`, then run `npm start` and open [the local assistant](http://127.0.0.1:3000/). The process needs HTTPS access to `fantasy.premierleague.com`. The port can be changed with `FPL_PORT`.
 
 ## Run on Cloudflare Workers
 
@@ -17,13 +17,15 @@ The Worker serves the dashboard and its `/api` routes from the same URL. An anon
 ## Predict a Gameweek squad
 
 1. Select a Gameweek, then click **Refresh FPL Data**. The page shows the time of the last successful refresh. Opening the dashboard reads the saved league snapshot locally.
-2. Select **Current FPL Ranking**, **Previous Gameweek Performance**, **Weather Impact Prediction**, or **Recent Performance Form**, then click **Analyse FPL Players**. Predictions are available before the Gameweek deadline.
+2. Select a strategy, then click **Analyse FPL Players**. The four squad strategies are **Current FPL Ranking**, **Previous Gameweek Performance**, **Weather Impact Prediction**, and **Recent Performance Form**. **News & Expert Opinion Analysis** returns a separate ranked list. Analysis is available before the Gameweek deadline.
 3. The squad fits the standard £100m budget and three-player club limit, with two goalkeepers, five defenders, five midfielders and three forwards. The total adds all 15 player forecasts before captaincy. A dash indicates insufficient scoring evidence.
 4. In **Prediction history**, compare saved results across strategies and Gameweeks. Click **Refresh FPL Data** after scoring is final to record actuals. Results report mean absolute error per player with both a forecast and an official result. The comparison uses the latest saved prediction per strategy and Gameweek. The local Node server saves predictions in `.fpl-data/predictions.json`.
 
 Current ranking uses season points, playing time, and FPL form. Previous Gameweek Performance uses points, minutes, and individual stats from the latest completed Gameweek before the selected one. Both use the selected Gameweek's official fixtures and current availability. The weather strategy also retrieves Open-Meteo forecasts for the home grounds and flags heavy rain, wind gusts, and extreme temperatures. Weather flags add context to the FPL-based points estimate. Missing fixture forecasts and coverage are shown in the result. [Open-Meteo forecast data](https://open-meteo.com/en/docs) · [Premier League home grounds](https://www.premierleague.com/en/news/4725666/all-you-need-to-know-about-the-20-premier-league-stadiums)
 
 **Recent Performance Form** weighs FPL points from up to three completed Gameweeks, using minutes and planned fixture difficulty to inform selection. It also checks recent FA Cup, League Cup, and senior international match reports from ESPN for verified appearances and on-field contributions. Supplemental results cover a rolling 14-day window, with priority given to teams with current FPL players. The app reuses the last completed Gameweek from the refresh and caches bulk results and reports. Each prediction shows its data coverage and sources.
+
+**News & Expert Opinion Analysis** searches the last seven days of coverage in The Guardian, BBC Sport, Sky Sports, The Independent and Fantasy Football Scout feeds. It matches current FPL players to positive coverage, counts at most one mention per publisher per player, and deduplicates repeated bylines and copied passages. Rankings use the independent mention count followed by the strength of the positive language. Each recommendation links to the dated article. This list is separate from squad points and prediction history.
 
 ## Browse players and your public squad
 
