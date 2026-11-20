@@ -151,15 +151,19 @@ test('requires a manual Gameweek refresh and saves each requested strategy with 
   const scope = `${endpoint}&token=${refresh.token}`;
   await request(`${scope}&strategy=all`, 400, 'POST');
 
-  const selected = refresh.previousWeek ? ['ranking', 'previous', 'weather'] : ['ranking', 'weather'];
+  const selected = refresh.previousWeek ? ['ranking', 'previous', 'weather', 'recent'] : ['ranking', 'weather', 'recent'];
   const results = [];
+  let previousSource;
   for (const strategy of selected) {
     const record = await (await request(`${scope}&strategy=${strategy}`, 201, 'POST')).json();
     assert.equal(record.strategy, strategy);
     assert.equal(record.gameweek, target.id);
     assertSquad(record);
     assert.equal(record.accuracy, null);
-    if (strategy === 'previous') assertSource(record.sources[2], `/api/event/${refresh.previousWeek}/live/`);
+    if (strategy === 'previous') {
+      previousSource = record.sources[2];
+      assertSource(previousSource, `/api/event/${refresh.previousWeek}/live/`);
+    }
     else assert.equal(record.previousWeek, null);
     if (strategy === 'weather') {
       assert.ok(record.weather);
@@ -171,6 +175,23 @@ test('requires a manual Gameweek refresh and saves each requested strategy with 
       const coverage = record.weather.fixtures.filter(fixture => !fixture.unavailable).length;
       t.diagnostic(`Open-Meteo forecast coverage: ${coverage}/${record.weather.fixtures.length} fixtures`);
     } else assert.equal(record.weather, null);
+    if (strategy === 'recent') {
+      assert.ok(record.recentForm.domesticWeeks.length <= 3);
+      assert.ok(record.players.every(player => Number.isInteger(player.evidence.domesticWeeks)
+        && Number.isInteger(player.evidence.internationalMatches)));
+      if (previousSource) assert.deepEqual(record.sources.find(source => source.url === previousSource.url), previousSource);
+      if (record.recentForm.internationalReports) {
+        assert.ok(record.sources.some(source => source.url.startsWith('https://site.api.espn.com/') && source.url.includes('/summary?event=')));
+      }
+      t.diagnostic(`Recent form coverage: ${record.recentForm.domesticWeeks.length} FPL Gameweeks, ${record.recentForm.internationalReports} matched international reports, ${record.recentForm.cupReports} matched cup reports`);
+      const repeat = await (await request(`${scope}&strategy=recent`, 201, 'POST')).json();
+      assert.deepEqual(repeat.sources, record.sources);
+      assert.deepEqual(repeat.players, record.players);
+      results.push(repeat.id);
+    } else {
+      assert.equal(record.recentForm, undefined);
+      assert.ok(record.players.every(player => player.evidence === undefined));
+    }
     results.push(record.id);
   }
   const history = await (await request('/api/predictions')).json();
@@ -199,6 +220,7 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   let weatherCalls = 0;
   let liveCalls = 0;
   let refreshCalls = 0;
+  let formCalls = 0;
   const service = predictionService({
     getDashboard: async () => { refreshCalls += 1; return snapshot; },
     getLive: async id => { liveCalls += 1; return points.get(id); }
@@ -208,7 +230,8 @@ test('replays an official completed Gameweek to verify accuracy and independent 
     weather: async matches => {
       weatherCalls += 1;
       return { fixtures: matches.map(fixture => ({ id: fixture.id, unavailable: 'Forecast unavailable' })), sources: [] };
-    }
+    },
+    form: async () => { formCalls += 1; throw new Error('Recent form must only run for its own strategy'); }
   });
   const input = await service.refresh(week.id);
   assert.equal(input.previousWeek, prior.id);
@@ -219,6 +242,7 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   assertSquad(weather);
   assert.ok(weather.weather.fixtures.every(fixture => fixture.unavailable));
   assert.equal(weatherCalls, 1);
+  assert.equal(formCalls, 0);
   assert.equal(liveCalls, 1);
   assert.equal(refreshCalls, 1);
   assert.ok((await service.history()).every(record => record.accuracy === null));

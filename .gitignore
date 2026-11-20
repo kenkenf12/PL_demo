@@ -1,3 +1,5 @@
 .fpl-cache/
 .fpl-data/
 node_modules/
+.wrangler/
+.dev.vars*

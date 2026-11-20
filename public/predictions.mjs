@@ -1,7 +1,8 @@
 import { forecast, price } from './model.mjs';
 
 const strategyName = {
-  ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance', weather: 'Weather Impact Prediction'
+  ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance', weather: 'Weather Impact Prediction',
+  recent: 'Recent Performance Form'
 };
 const $ = selector => document.querySelector(selector);
 const availableForecasts = report => report.fixtures.filter(fixture => !fixture.unavailable).length;
@@ -76,19 +77,28 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
     const comparison = accuracy && accuracy.meanAbsoluteError != null
       ? `<p>Mean absolute error <strong>${forecast(accuracy.meanAbsoluteError)} pts/player</strong> · ${accuracy.comparedCount} compared · ${forecast(accuracy.predictedComparableTotal)} predicted, ${accuracy.actualComparableTotal} actual for those players.</p>` : '';
+    const form = record.recentForm;
+    const coverage = form ? [
+      form.domesticWeeks.length ? `PL results: ${form.domesticWeeks.map(week => 'GW' + week).join(', ')}` : 'Recent PL results unavailable',
+      form.cupReports ? `${form.cupReports} domestic cup reports matched` : '',
+      form.internationalReports ? `${form.internationalReports} international reports matched` : 'No verified international appearances in this window',
+      form.days < form.expectedDays || form.reports < form.requested || form.domesticWeeks.length < form.requestedWeeks ? 'Partial data coverage' : ''
+    ].filter(Boolean).join(' · ') : '';
     return `<div class="prediction-result-head"><div><h3>Gameweek ${record.gameweek} · ${strategyName[record.strategy]}</h3>
       <p>${players.length} players · ${price(record.cost)}${record.previousWeek ? ` · Uses final GW${record.previousWeek} results` : ''}</p></div>
       <div class="prediction-total"><strong>${forecast(record.total)}</strong><span>Projected squad pts</span></div></div>
       ${record.projectedCount < players.length ? `<p>${record.projectedCount} of ${players.length} players have a point estimate.</p>` : ''}
       <p>Captain <strong>${html(players.find(player => player.id === record.captain)?.name)}</strong> · Vice-captain <strong>${html(players.find(player => player.id === record.viceCaptain)?.name)}</strong></p>
       <p class="prediction-caption">Squad totals add all 15 players before captaincy.</p>
+      ${coverage ? `<p class="prediction-caption">${html(coverage)}</p>` : ''}
       ${comparison}
       <div class="scroll-table" tabindex="0" aria-label="Predicted 15-player squad">
         <table><thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th><th scope="col">Price</th><th scope="col">Projected</th>
         ${accuracy ? '<th scope="col">Actual</th>' : ''}</tr></thead>
         <tbody>${players.map(player => `<tr><td><strong>${html(player.name)}</strong>
           ${player.id === record.captain ? '<span class="prediction-role">C</span>' : player.id === record.viceCaptain ? '<span class="prediction-role">VC</span>' : ''}
-          ${player.weatherWatch ? '<span class="player-meta">Weather watch</span>' : ''}</td>
+          ${player.weatherWatch ? '<span class="player-meta">Weather watch</span>' : ''}
+          ${player.evidence ? `<span class="player-meta">${player.evidence.domesticWeeks} PL weeks · ${player.evidence.cupMatches} cup · ${player.evidence.internationalMatches} international</span>` : ''}</td>
           <td>${html(player.team)}</td><td>${html(player.position)}</td><td>${price(player.cost)}</td><td>${forecast(player.predicted)}</td>
           ${accuracy ? `<td>${actual.get(player.id) ?? '—'}</td>` : ''}</tr>`).join('')}</tbody></table>
       </div>
