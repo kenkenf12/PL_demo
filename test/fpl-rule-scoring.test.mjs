@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ruleBasedMatchAverage, withRuleBasedForecasts } from '../lib/fpl-rule-scoring.mjs';
+import { ruleBasedMatchAverage, withRuleBasedHistoricalBenchmark } from '../lib/fpl-rule-scoring.mjs';
 
 const config = {
   long_play: 2, short_play: 1, goals_scored: { GKP: 10, DEF: 6 }, saves: 1,
@@ -32,15 +32,15 @@ test('distinguishes missing scoring data from a confirmed zero', () => {
   assert.equal(ruleBasedMatchAverage(unsupported, completed, 'DEF', config), null);
 });
 
-test('adds the forecast without changing original values and handles doubles and blanks', () => {
+test('adds the historical benchmark without changing forecasts and handles doubles and blanks', () => {
   const players = [{ id: 1, teamId: 1, predicted: 3.7 }, { id: 2, teamId: 5, predicted: 0 },
     { id: 3, teamId: 2, predicted: null }, { id: 4, teamId: 2, predicted: 2.1 }];
   const fixtures = [{ team_h: 1, team_a: 2 }, { team_h: 3, team_a: 1 }];
   const previous = { players: [{ id: 1, fplRuleBasedMatchAverage: 5 }, { id: 2, fplRuleBasedMatchAverage: 4 },
     { id: 4, fplRuleBasedMatchAverage: -1 }] };
-  const results = withRuleBasedForecasts(players, fixtures, previous);
-  assert.deepEqual(results.map(player => player.fplRuleBasedPredictedPoints), [10, 0, null, -1]);
-  assert.deepEqual(results.map(({ fplRuleBasedPredictedPoints, ...player }) => player), players);
-  const legacy = withRuleBasedForecasts(players, fixtures, { players: [{ id: 1, total_points: 5 }] });
-  assert.ok(legacy.every(player => player.fplRuleBasedPredictedPoints === null));
+  const results = withRuleBasedHistoricalBenchmark(players, fixtures, previous);
+  assert.deepEqual(results.map(player => player.fplRuleBasedHistoricalBenchmark), [10, 0, null, -1]);
+  assert.deepEqual(results.map(({ fplRuleBasedHistoricalBenchmark, ...player }) => player), players);
+  const legacy = withRuleBasedHistoricalBenchmark(players, fixtures, { players: [{ id: 1, total_points: 5 }] });
+  assert.ok(legacy.every(player => player.fplRuleBasedHistoricalBenchmark === null));
 });

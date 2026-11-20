@@ -171,14 +171,15 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     assert.equal(record.weather, undefined);
     assert.equal(record.previousActualWeek, exactPrevious?.event ?? null);
     for (const player of record.players) assert.equal(player.previousActualPoints, previousTotals.get(player.id) ?? null);
-    assert.ok(record.players.every(player => player.fplRuleBasedPredictedPoints === null
-      || Number.isFinite(player.fplRuleBasedPredictedPoints)));
+    assert.ok(record.players.every(player => player.fplRuleBasedHistoricalBenchmark === null
+      || Number.isFinite(player.fplRuleBasedHistoricalBenchmark)));
+    assert.ok(record.players.every(player => !Object.hasOwn(player, 'fplRuleBasedPredictedPoints')));
     if (strategy === 'ranking' || strategy === 'previous') {
       const original = predictSquad(refresh.dashboard, fixtures, strategy, strategy === 'previous' ? previous : null, null);
-      assert.deepEqual(record.players.map(({ fplRuleBasedPredictedPoints, previousActualPoints, ...player }) => player), original.players);
+      assert.deepEqual(record.players.map(({ fplRuleBasedHistoricalBenchmark, previousActualPoints, ...player }) => player), original.players);
       for (const key of ['total', 'captain', 'viceCaptain', 'cost', 'projectedCount']) assert.equal(record[key], original[key]);
       if (previous && fixtures.length) {
-        assert.ok(record.players.some(player => player.fplRuleBasedPredictedPoints != null));
+        assert.ok(record.players.some(player => player.fplRuleBasedHistoricalBenchmark != null));
         assert.ok(record.sources.some(source => source.url.endsWith(`/event/${refresh.previousWeek}/live/`)));
       }
     }
