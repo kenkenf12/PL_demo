@@ -1,46 +1,52 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ruleBasedMatchAverage, withRuleBasedHistoricalBenchmark } from '../lib/fpl-rule-scoring.mjs';
+import { withRuleBasedPredictions } from '../lib/fpl-rule-scoring.mjs';
 
-const config = {
-  long_play: 2, short_play: 1, goals_scored: { GKP: 10, DEF: 6 }, saves: 1,
-  goals_conceded: { GKP: -1, DEF: -1 }, defensive_contribution: { GKP: 0, DEF: 2 }
+const scoring = {
+  long_play: 2, short_play: 1, goals_scored: { DEF: 6, GKP: 10 }, assists: 3,
+  clean_sheets: { DEF: 4, GKP: 4 }, bonus: 1, yellow_cards: -1
 };
-const stat = (identifier, value, points) => ({ identifier, value, points, points_modification: 0 });
-const match = (fixture, ...stats) => ({ fixture, stats });
-const completed = new Set([1, 2]);
+const fixture = { team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3 };
+const player = { id: 1, team: 1, element_type: 2, status: 'a', minutes: 540, starts: 6,
+  goals_scored: 9, expected_goals: '2.0', assists: 8, expected_assists: '1.0', clean_sheets: 3,
+  bonus: 2, yellow_cards: 1, total_points: 900, saves: 999 };
+const selected = { id: 1, teamId: 1, predicted: 3.7, previousActualPoints: 999 };
+const dashboard = {
+  players: [player], scoring, positions: [{ id: 2, singular_name_short: 'DEF' }, { id: 1, singular_name_short: 'GKP' }],
+  fixtures: Array.from({ length: 6 }, () => ({ ...fixture, finished: true }))
+};
 
-test('uses configured position weights and official threshold outcomes for each completed fixture', () => {
-  const explain = [
-    match(1, stat('minutes', 90, 2), stat('goals_scored', 1, 6), stat('defensive_contribution', 12, 2),
-      stat('goals_conceded', 3, -1)),
-    match(2, stat('minutes', 27, 1)),
-    match(3, stat('minutes', 90, 2), stat('goals_scored', 4, 24))
-  ];
-  assert.equal(ruleBasedMatchAverage(explain, completed, 'DEF', config), 5);
-  assert.equal(ruleBasedMatchAverage(explain, completed, 'DEF', { ...config, goals_scored: { DEF: 8 } }), 6);
-  const goalkeeper = [match(1, stat('minutes', 90, 2), stat('saves', 4, 1), stat('goals_conceded', 2, -1))];
-  assert.equal(ruleBasedMatchAverage(goalkeeper, completed, 'GKP', config), 2);
+function projection(data, fixtures = [fixture]) {
+  return withRuleBasedPredictions([selected], data, fixtures)[0].predictedFplRuleBasedPoints;
+}
+
+test('applies position scoring weights to season stats for the selected fixture', () => {
+  const [result] = withRuleBasedPredictions([selected], dashboard, [fixture]);
+  const appearanceAndOther = 6 * 2 + 2 * 1 - 1;
+  const attackAndCleanSheets = 2 * 6 + 1 * 3 + 3 * 4;
+  const expected = (appearanceAndOther + attackAndCleanSheets * 1.04) / 6;
+  assert.ok(Math.abs(result.predictedFplRuleBasedPoints - expected) < 1e-12);
+  const goalkeeper = { ...dashboard, players: [{ ...player, element_type: 1 }] };
+  assert.ok(projection(goalkeeper) > projection(dashboard));
+  const { predictedFplRuleBasedPoints, ...original } = result;
+  assert.deepEqual(original, selected);
 });
 
-test('distinguishes missing scoring data from a confirmed zero', () => {
-  const zero = [match(1, stat('minutes', 0, 0))];
-  assert.equal(ruleBasedMatchAverage(zero, completed, 'DEF', config), 0);
-  assert.equal(ruleBasedMatchAverage(zero, completed, 'DEF', null), null);
-  assert.equal(ruleBasedMatchAverage([], completed, 'DEF', config), null);
-  const unsupported = [match(1, stat('minutes', 90, 2), stat('unpublished_rule', 1, 5))];
-  assert.equal(ruleBasedMatchAverage(unsupported, completed, 'DEF', config), null);
+test('responds to fixtures and availability independently of past score totals', () => {
+  const normal = projection(dashboard);
+  const hard = { ...fixture, team_h_difficulty: 5 };
+  assert.ok(projection(dashboard, [hard]) < normal);
+  assert.equal(projection(dashboard, [fixture, fixture]), normal * 2);
+  assert.equal(projection(dashboard, []), 0);
+  const halfChance = { ...dashboard, players: [{ ...player, chance_of_playing_next_round: 50 }] };
+  assert.equal(projection(halfChance), normal / 2);
+  const revised = { ...dashboard, players: [{ ...player, total_points: -1000, saves: 0 }] };
+  const [result] = withRuleBasedPredictions([{ ...selected, previousActualPoints: -999 }], revised, [fixture]);
+  assert.equal(result.predictedFplRuleBasedPoints, normal);
 });
 
-test('adds the historical benchmark without changing forecasts and handles doubles and blanks', () => {
-  const players = [{ id: 1, teamId: 1, predicted: 3.7 }, { id: 2, teamId: 5, predicted: 0 },
-    { id: 3, teamId: 2, predicted: null }, { id: 4, teamId: 2, predicted: 2.1 }];
-  const fixtures = [{ team_h: 1, team_a: 2 }, { team_h: 3, team_a: 1 }];
-  const previous = { players: [{ id: 1, fplRuleBasedMatchAverage: 5 }, { id: 2, fplRuleBasedMatchAverage: 4 },
-    { id: 4, fplRuleBasedMatchAverage: -1 }] };
-  const results = withRuleBasedHistoricalBenchmark(players, fixtures, previous);
-  assert.deepEqual(results.map(player => player.fplRuleBasedHistoricalBenchmark), [10, 0, null, -1]);
-  assert.deepEqual(results.map(({ fplRuleBasedHistoricalBenchmark, ...player }) => player), players);
-  const legacy = withRuleBasedHistoricalBenchmark(players, fixtures, { players: [{ id: 1, total_points: 5 }] });
-  assert.ok(legacy.every(player => player.fplRuleBasedHistoricalBenchmark === null));
+test('marks missing rules or playing-time evidence as unavailable', () => {
+  assert.equal(projection({ ...dashboard, scoring: null }), null);
+  assert.equal(projection({ ...dashboard, players: [{ ...player, minutes: 0 }] }), null);
+  assert.ok(projection({ ...dashboard, players: [{ ...player, expected_goals: null, expected_assists: null }] }) > projection(dashboard));
 });

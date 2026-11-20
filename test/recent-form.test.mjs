@@ -16,8 +16,8 @@ test('recent form selects verified non-EPL participants and excludes unused or E
   const dashboard = { players, teams, positions: [{ id: 3, singular_name: 'Midfielder' }],
     fixtures: [{ ...fixture, id: 2, event: 10, finished: true }, fixture],
     events: [{ id: 10, finished: true, data_checked: true }, { id: 11 }] };
-  const previous = { event: 10, players: players.map(player => ({ id: player.id, minutes: 90, total_points: player.total_points })),
-    sources: [] };
+  const previous = { event: 10, players: players.map(player => ({ id: player.id, minutes: 90, starts: 1,
+    expected_goals: '0', assists: 0, clean_sheets: 0, total_points: player.total_points })), sources: [] };
   const club = { id: '21', displayName: 'Test City', abbreviation: 'TST' };
   const nation = { id: '22', displayName: 'England', abbreviation: 'ENG' };
   const status = { type: { completed: true } };
@@ -29,7 +29,7 @@ test('recent form selects verified non-EPL participants and excludes unused or E
     { ...event('5', 'uefa.europa', club), status: { type: { completed: false } } }];
   const member = (index, flags) => ({ ...flags, athlete: { fullName: players[index].web_name } });
   const rosters = {
-    1: [member(0, { starter: true }), member(3, { starter: false, subbedIn: false })],
+    1: [member(0, { starter: true, stats: [{ name: 'totalGoals', value: 2 }] }), member(3, { starter: false, subbedIn: false })],
     2: [member(1, { subbedIn: true })],
     3: [member(2, { stats: [{ name: 'appearances', value: 1 }] })]
   };
@@ -50,6 +50,8 @@ test('recent form selects verified non-EPL participants and excludes unused or E
   const recent = await form({ dashboard, week: { id: 11 }, previous }, cutoff);
   const result = predictSquad(dashboard, [fixture], 'recent', null, recent);
   assert.deepEqual(summaries.sort(), ['1', '2', '3']);
+  assert.ok(recent.ruleBased[1].goals_scored.total > 0 && recent.ruleBased[1].goals_scored.weight > 1);
+  assert.deepEqual(recent.ruleBased[2].goals_scored, { total: 0, weight: 1 });
   assert.equal(recent.performances[4].domesticWeeks, 1);
   assert.deepEqual(result.players.map(player => player.id).sort(), [1, 2, 3]);
   assert.ok(result.players.every(player => player.evidence.cupMatches + player.evidence.europeanMatches + player.evidence.internationalMatches === 1));

@@ -8,10 +8,12 @@ const teams = Array.from({ length: 6 }, (_, index) => ({ id: index + 1, name: `C
 const positionIds = [1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4];
 const players = positionIds.map((element_type, index) => ({
   id: 100 + index * 7, web_name: `Player ${index + 1}`, team: Math.floor(index / 3) + 1, element_type,
-  status: 'a', now_cost: 50, minutes: 90, form: '3', total_points: 10 + index
+  status: 'a', now_cost: 50, minutes: 90, starts: 1, form: '3', total_points: 10 + index,
+  expected_goals: '1', expected_assists: '0.5', clean_sheets: 1
 }));
 const priorPlayers = players.map((player, index) => ({
-  id: player.id, minutes: 90, expected_goal_involvements: '1', total_points: index, fplRuleBasedMatchAverage: index
+  id: player.id, minutes: 90, starts: 1, expected_goals: '0.25', expected_assists: '0.25',
+  expected_goal_involvements: '0.5', clean_sheets: 0, total_points: index
 })).reverse();
 const prior = { event: gameweek - 1, players: priorPlayers, sources: [{ url: 'https://fpl.example/gameweek/7' }] };
 const events = [
@@ -23,6 +25,9 @@ const form = async () => ({
   performances: Object.fromEntries(players.map(player => [player.id, {
     points: 5, minutes: 90, matchWeight: 1, domesticWeeks: 1, cupMatches: 1
   }])),
+  ruleBased: Object.fromEntries(players.map(player => [player.id, {
+    goals_scored: { total: 2, weight: 1 }, assists: { total: 1, weight: 1 }
+  }])),
   summary: { domesticWeeks: [7], requestedWeeks: 1, europeanReports: 0, days: 1, expectedDays: 1, reports: 1, requested: 1 },
   sources: []
 });
@@ -33,7 +38,8 @@ function serviceFor(difficulty, report = prior, saved = []) {
     team_h_difficulty: id === gameweek ? difficulty : 3, team_a_difficulty: id === gameweek ? difficulty : 3
   })));
   const dashboard = { seasonYear: 2026, fixtures, events, teams, players, sources: [],
-    positions: [...new Set(positionIds)].map(id => ({ id, singular_name: `Position ${id}` })) };
+    scoring: { long_play: 2, short_play: 1, goals_scored: 5, assists: 3, clean_sheets: 2 },
+    positions: [...new Set(positionIds)].map(id => ({ id, singular_name: `Position ${id}`, singular_name_short: String(id) })) };
   return predictionService({
     getDashboard: async () => dashboard,
     getLive: async id => {
@@ -45,7 +51,7 @@ function serviceFor(difficulty, report = prior, saved = []) {
   } } });
 }
 
-test('all three forecasts respond to selected fixtures while actuals and the benchmark stay fixed', async () => {
+test('the original and rule-based forecasts respond to selected fixtures while actuals stay fixed', async () => {
   const easy = serviceFor(1);
   const hard = serviceFor(5);
   const [easyRefresh, hardRefresh] = await Promise.all([easy.refresh(gameweek), hard.refresh(gameweek)]);
@@ -60,12 +66,35 @@ test('all three forecasts respond to selected fixtures while actuals and the ben
     for (const player of after.players) {
       const expectedActual = totals.get(player.id);
       assert.equal(player.previousActualPoints, expectedActual);
-      assert.equal(player.fplRuleBasedHistoricalBenchmark, expectedActual);
-      assert.ok(Math.abs(player.predicted - beforeById.get(player.id).predicted * 0.76 / 1.2) < 1e-9);
-      assert.ok(player.predicted < beforeById.get(player.id).predicted);
+      const original = beforeById.get(player.id);
+      assert.ok(Math.abs(player.predicted - original.predicted * 0.76 / 1.2) < 1e-9);
+      assert.ok(player.predictedFplRuleBasedPoints < original.predictedFplRuleBasedPoints);
+      assert.ok(Number.isFinite(player.predictedFplRuleBasedPoints));
     }
   }
   await assert.rejects(easy.analyse(gameweek + 1, 'ranking', easyRefresh.token), { status: 409 });
+});
+
+test('rule-based points use the selected strategy independently of historical totals', async () => {
+  const original = serviceFor(3);
+  const revised = serviceFor(3, { ...prior, players: priorPlayers.map(player => ({ ...player, total_points: 99 })) });
+  const first = await original.refresh(gameweek);
+  const second = await revised.refresh(gameweek);
+  const targets = new Set(players.map(player => player.id));
+  const byPlayer = new Map(players.map(player => [player.id, []]));
+  for (const strategy of ['ranking', 'previous', 'recent']) {
+    const a = await original.analyse(gameweek, strategy, first.token);
+    const b = await revised.analyse(gameweek, strategy, second.token);
+    const points = report => new Map(report.players.map(player => [player.id, player.predictedFplRuleBasedPoints]));
+    assert.deepEqual(points(a), points(b));
+    assert.deepEqual(new Set(points(a).keys()), targets);
+    for (const [id, forecast] of points(a)) {
+      assert.ok(Number.isFinite(forecast));
+      byPlayer.get(id).push(forecast);
+    }
+    assert.ok(b.players.every(player => player.previousActualPoints === 99));
+  }
+  assert.ok([...byPlayer.values()].every(forecasts => new Set(forecasts).size === 3));
 });
 
 test('ranking forecasts stay independent from prior totals and reject reports for a different Gameweek', async () => {
@@ -77,19 +106,24 @@ test('ranking forecasts stay independent from prior totals and reject reports fo
     return { ready, forecast: await service.analyse(gameweek, 'ranking', ready.token) };
   }));
   const [before, after, wrongWeek] = results;
-  const forecasts = report => report.players.map(player => [player.id, player.predicted]);
+  const forecasts = report => report.players.map(player => [player.id, player.predicted, player.predictedFplRuleBasedPoints]);
   assert.deepEqual(forecasts(before.forecast), forecasts(after.forecast));
   assert.ok(after.forecast.players.every(player => player.previousActualPoints === 99));
   assert.equal(wrongWeek.ready.previousWeek, null);
-  assert.ok(wrongWeek.forecast.players.every(player => player.previousActualPoints === null && player.fplRuleBasedHistoricalBenchmark === null));
+  assert.ok(wrongWeek.forecast.players.every(player => player.previousActualPoints === null
+    && Number.isFinite(player.predictedFplRuleBasedPoints)));
   assert.deepEqual(forecasts(before.forecast), forecasts(wrongWeek.forecast));
   await assert.rejects(mismatch.analyse(gameweek, 'previous', wrongWeek.ready.token), { status: 409 });
 });
 
-test('saved results display the legacy rule-based value as a benchmark without rewriting history', async () => {
+test('saved results retain original forecasts without relabeling old replay scores as predictions', async () => {
   const player = { id: 103, predicted: 4.6, previousActualPoints: 7, fplRuleBasedPredictedPoints: 7 };
-  const saved = [{ id: 'saved', gameweek, players: [player] }];
-  const [record] = await serviceFor(3, prior, saved).history();
-  assert.deepEqual(record.players, [{ id: 103, predicted: 4.6, previousActualPoints: 7, fplRuleBasedHistoricalBenchmark: 7 }]);
+  const saved = [{ id: 'saved', gameweek, players: [player] },
+    { id: 'benchmark', gameweek, players: [{ id: 103, predicted: 4.6, previousActualPoints: 7, fplRuleBasedHistoricalBenchmark: 7 }] },
+    { id: 'forecast', gameweek, players: [{ id: 103, predicted: 4.6, previousActualPoints: 7, predictedFplRuleBasedPoints: 4.5 }] }];
+  const [record, benchmark, current] = await serviceFor(3, prior, saved).history();
+  assert.deepEqual(record.players, [{ id: 103, predicted: 4.6, previousActualPoints: 7 }]);
+  assert.deepEqual(benchmark.players, record.players);
+  assert.equal(current.players[0].predictedFplRuleBasedPoints, 4.5);
   assert.equal(saved[0].players[0].fplRuleBasedPredictedPoints, 7);
 });
