@@ -1,0 +1,33 @@
+name: FPL demo CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Build and validate demo
+        shell: bash
+        run: |
+          npm run build --if-present
+          git ls-files -z -- '*.mjs' | xargs -0 -r -n 1 node --check
+
+      - name: Run live integration tests
+        env:
+          FPL_TEST_ENTRY_ID: ${{ vars.FPL_TEST_ENTRY_ID || '1' }}
+        run: npm test
