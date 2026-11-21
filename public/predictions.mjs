@@ -40,8 +40,12 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     const locked = ready && (ready.week.finished || Date.parse(ready.week.deadline_time) <= Date.now());
     week.disabled = busy;
     refresh.disabled = busy || !week.value;
-    strategy.disabled = busy || !ready || locked;
-    analyse.disabled = strategy.disabled || !strategy.value || (strategy.value === 'previous' && !ready.previousWeek);
+    strategy.disabled = busy || !ready;
+    for (const option of strategy.options) {
+      option.disabled = Boolean(locked && option.value && option.value !== 'special-rules');
+    }
+    analyse.disabled = strategy.disabled || !strategy.value || strategy.selectedOptions[0]?.disabled
+      || (strategy.value === 'previous' && !ready.previousWeek);
   }
 
   function showAnalysis(message) {
@@ -165,6 +169,19 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   const predictionView = record => record.strategy === 'match-winners' ? matchWinnerView(record) : squadView(record);
 
+  function specialRulesView({ gameweek, weeks, players, sources }) {
+    return `<div class="prediction-result-head"><div><h3>Gameweek ${gameweek} · Special Rules</h3>
+      <p>Players who started in each of the three prior completed Gameweeks and had a goal or assist followed by two Gameweeks with neither.</p></div></div>
+      ${weeks.length < 3 ? '<p>Three completed Gameweeks are needed to check this rule.</p>'
+        : players.length ? `<div class="scroll-table" tabindex="0" aria-label="Players matching the special rule"><table>
+          <thead><tr><th scope="col">Player</th><th scope="col">Club</th>
+          ${weeks.map(week => `<th scope="col">GW${week}<span class="player-meta">Starts / Goals / Assists</span></th>`).join('')}</tr></thead>
+          <tbody>${players.map(player => `<tr><td><strong>${html(player.name)}</strong></td><td>${html(player.team)}</td>
+          ${player.gameweeks.map(({ starts, goals, assists }) => `<td>${starts} / ${goals ?? '—'} / ${assists ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table></div>` : `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`}
+      ${sources.length ? `<details class="provenance"><summary>Gameweek scoring sources</summary>${sourceList(sources)}</details>` : ''}`;
+  }
+
   function newsView(report) {
     const { recommendations, coverage } = report;
     const listing = recommendations.length ? `<ol class="news-picks">${recommendations.map(pick => `<li>
@@ -278,7 +295,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         showAnalysis('');
         return;
       }
-      result.innerHTML = predictionView(record);
+      result.innerHTML = record.strategy === 'special-rules' ? specialRulesView(record) : predictionView(record);
       result.hidden = false;
       showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
         : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
