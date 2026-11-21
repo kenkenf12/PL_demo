@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHeadToHeadAnalysis } from '../lib/head-to-head.mjs';
+import { roundRuleBasedPoints } from '../lib/fpl-rule-scoring.mjs';
 import { createApiHandler } from '../lib/http.mjs';
-import { predictMatchWinners } from '../lib/match-winner-strategy.mjs';
+import { createFixturePlayerScorer, predictMatchWinners } from '../lib/match-winner-strategy.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 
 const gameweek = 5;
@@ -17,9 +18,13 @@ const espnTeams = new Map(teams.map(team => [team.id, { id: String(team.id + 100
   displayName: team.id === 1 ? 'Manchester United' : team.name, abbreviation: team.id === 1 ? 'MAN' : team.short_name }]));
 const fixtures = [1, 3, 5].map(team => ({ id: 100 + team, event: gameweek, team_h: team, team_a: team + 1, kickoff_time: kickoff }));
 const events = [1, 2, 3, 4].map(id => ({ id, finished: true, data_checked: true }));
-const dashboard = { seasonYear: 2026, teams, sources: [], positions: [{ id: 1, singular_name: 'Goalkeeper' }],
+const scoring = { long_play: 2, short_play: 1, goals_scored: 10, assists: 3, clean_sheets: 4, saves: 1,
+  goals_conceded: -1, defensive_contribution: 0, yellow_cards: -1, own_goals: 0,
+  penalties_saved: 0, penalties_missed: 0, red_cards: 0, bonus: 0 };
+const dashboard = { seasonYear: 2026, teams, scoring, sources: [], positions: [{ id: 1, singular_name: 'Goalkeeper', singular_name_short: 'GKP' }],
   players: teams.flatMap(team => [1, 2].map(number => ({ id: team.id * 10 + number, team: team.id,
-    web_name: `Player ${team.id}.${number}`, element_type: 1 }))),
+    web_name: `Player ${team.id}.${number}`, element_type: 1, status: 'a', minutes: 360,
+    expected_goals: `${number}`, expected_assists: '0.5' }))),
   events: [...events, { id: gameweek, deadline_time: '2026-08-19T13:30:00Z' }],
   fixtures: [...fixtures, ...events.flatMap(({ id }) => fixtures.map(fixture => ({
     event: id, finished: true, kickoff_time: `2026-08-${10 + id}T15:00:00Z`, team_h_score: 1, team_a_score: 1,
@@ -36,7 +41,7 @@ const meeting = (id, home, away, homeScore, awayScore, date = `2025-05-0${id}T15
 });
 const histories = new Map([
   [101, [meeting(1, 2, 1, '2', '0'), meeting(4, 1, 2, 1, 0), meeting(3, 1, 2, 1, 0),
-    meeting(5, 2, 1, 1, 0), meeting(2, 1, 2, 2, 1), meeting(3, 1, 2, 1, 0),
+    meeting(5, 2, 1, 1, 0), meeting(2, 1, 2, 2, 2), meeting(3, 1, 2, 1, 0),
     meeting(6, 2, 3, 4, 0), meeting(7, 2, 1, 4, 0, '2026-08-19T12:00:00Z'),
     meeting(101, 1, 2, 0, 4, '2026-08-18T15:00:00Z'),
     { ...meeting(8, 1, 2, 0, 4), statusType: { completed: false } }, meeting(9, 1, 2, null, 4)]],
@@ -44,14 +49,22 @@ const histories = new Map([
   [105, [1, 2, 3, 4].map(id => meeting(id, 5, 6, 1, 1))]
 ]);
 
-function analysis(history = histories, requests = []) {
-  return createHeadToHeadAnalysis(async input => {
+function playerEvidence(event, data = dashboard) {
+  return { event, sources: [{ url: `https://fpl.example/${event}` }], players: data.players.map(player => ({ id: player.id,
+    minutes: 90, starts: 1, expected_goals: Number(player.expected_goals) / 4, expected_assists: 0.125,
+    scoringMatches: [{ minutes: 90, saves: 0, yellow_cards: 0, red_cards: 0 }] })) };
+}
+
+function analysis({ history = histories, requests = [], scheduled = fixtures,
+  fpl = { getLive: async id => playerEvidence(id) } } = {}) {
+  return createHeadToHeadAnalysis(fpl, async input => {
     const url = new URL(input);
     requests.push(url.pathname.split('/').at(-1));
     if (url.pathname.endsWith('/scoreboard')) {
-      assert.equal(url.searchParams.get('dates'), '20260819');
-      return Response.json({ events: fixtures.map(fixture => ({ id: String(fixture.id), date: kickoff,
-        competitions: [{ competitors: sides(fixture.team_h, fixture.team_a) }] })) });
+      const day = url.searchParams.get('dates');
+      return Response.json({ events: scheduled.filter(fixture => fixture.kickoff_time.slice(0, 10).replaceAll('-', '') === day)
+        .map(fixture => ({ id: String(fixture.id), date: fixture.kickoff_time,
+          competitions: [{ competitors: sides(fixture.team_h, fixture.team_a) }] })) });
     }
     const results = history.get(Number(url.searchParams.get('event')));
     return results ? Response.json({ seasonseries: [{ type: 'head-to-head', events: results }] })
@@ -61,39 +74,79 @@ function analysis(history = histories, requests = []) {
 
 test('uses the latest four verified meetings and filters each outcome by its clubs', async () => {
   const requests = [];
-  const report = await analysis(histories, requests)(dashboard, fixtures, gameweek, cutoff);
+  const report = await analysis({ requests })(dashboard, fixtures, gameweek, cutoff);
   const [home, away, draw] = report.matches;
   assert.deepEqual(home.meetings.map(match => match.id), ['5', '4', '3', '2']);
-  assert.deepEqual(home.h2h, { home: 0.75, draw: 0, away: 0.25 });
-  const baseline = predictMatchWinners(dashboard, fixtures, gameweek, []).matches;
-  assert.equal(draw.h2hWeight, 0.25);
-  assert.equal(draw.probabilities.draw, baseline[2].probabilities.draw * 0.75 + 0.25);
-  assert.ok(draw.probabilities.draw > draw.probabilities.home);
+  assert.deepEqual(home.teamRates, { home: { win: 0.5, draw: 0.25, loss: 0.25 }, away: { win: 0.25, draw: 0.25, loss: 0.5 } });
+  assert.deepEqual(home.combined, { win: 0.375, draw: 0.25, loss: 0.375 });
+  assert.deepEqual(home.probabilities, { home: 0.5, draw: 0.25, away: 0.25 });
+  assert.equal(Object.values(home.combined).reduce((sum, rate) => sum + rate, 0), 1);
+  assert.deepEqual(away.probabilities, { home: 0, draw: 0, away: 1 });
+  assert.deepEqual(draw.probabilities, { home: 0, draw: 1, away: 0 });
   assert.deepEqual(report.matches.map(match => match.outcome), ['home', 'away', 'draw']);
-  assert.deepEqual(home.players.map(player => player.id), [11, 12]);
-  assert.deepEqual(away.players.map(player => player.id), [41, 42]);
-  assert.deepEqual(draw.players.map(player => player.id), [51, 52, 61, 62]);
+  assert.deepEqual(home.eligibleTeamIds, [1]);
+  assert.deepEqual(away.eligibleTeamIds, [4]);
+  assert.deepEqual(draw.eligibleTeamIds, [5, 6]);
+  assert.deepEqual(report.players.map(player => player.id).sort((a, b) => a - b), [11, 12, 41, 42, 51, 52, 61, 62]);
+  assert.ok(report.players.every(player => Number.isFinite(player.performanceScore)));
   assert.deepEqual(requests, ['scoreboard', 'summary', 'summary', 'summary']);
-  assert.equal(report.sources.length, 4);
+  assert.equal(report.sources.length, 7);
 });
 
-test('reduces the weight for partial H2H coverage and uses the baseline when the history is unavailable', async () => {
-  const report = await analysis(new Map([[101, [meeting(1, 1, 2, 1, 0)]]]))(dashboard, fixtures, gameweek, cutoff);
-  const [partial, unavailable] = report.matches;
-  assert.equal(partial.h2hWeight, 0.0625);
-  assert.deepEqual(partial.h2h, { home: 1, draw: 0, away: 0 });
-  assert.equal(unavailable.h2hWeight, 0);
-  assert.equal(unavailable.h2h, null);
-  assert.deepEqual(unavailable.probabilities, predictMatchWinners(dashboard, fixtures, gameweek, []).matches[1].probabilities);
-  assert.equal(unavailable.outcome, 'draw');
+test('shows partial meeting history and requires four meetings before making a prediction', async () => {
+  const report = await analysis({ history: new Map([[101, [meeting(1, 1, 2, 1, 0)]]]) })(dashboard, fixtures, gameweek, cutoff);
+  assert.equal(report.matches[0].meetings.length, 1);
+  assert.equal(report.matches[1].meetings.length, 0);
+  for (const match of report.matches) {
+    assert.equal(match.teamRates, null);
+    assert.equal(match.combined, null);
+    assert.equal(match.probabilities, null);
+    assert.equal(match.outcome, null);
+    assert.deepEqual(match.eligibleTeamIds, []);
+  }
+  assert.deepEqual(report.players, []);
 });
 
-test('uses a full H2H sample when season results are unavailable', async () => {
-  const report = await analysis(new Map([[105, histories.get(105)]]))({ ...dashboard, fixtures }, fixtures, gameweek, cutoff);
-  assert.equal(report.matches[0].probabilities, null);
-  assert.deepEqual(report.matches[0].players, []);
+test('predicts from H2H independently of the season projection, and shows unavailable scores', async () => {
+  const report = await analysis({ history: new Map([[105, histories.get(105)]]) })({ ...dashboard, fixtures }, fixtures, gameweek, cutoff);
   assert.equal(report.matches[2].outcome, 'draw');
-  assert.equal(report.matches[2].h2hWeight, 1);
+  assert.deepEqual(report.players.map(player => player.id), [51, 52, 61, 62]);
+  assert.ok(report.players.every(player => player.performanceScore === null));
+});
+
+test('uses the most recent meeting among tied outcomes', async () => {
+  const tied = [meeting(4, 2, 1, 1, 0), meeting(3, 1, 2, 1, 0), meeting(2, 1, 2, 1, 0), meeting(1, 1, 2, 0, 1)];
+  const report = await analysis({ history: new Map([[101, tied]]) })(dashboard, fixtures, gameweek, cutoff);
+  assert.deepEqual(report.matches[0].probabilities, { home: 0.5, draw: 0, away: 0.5 });
+  assert.equal(report.matches[0].outcome, 'away');
+  assert.ok(report.players.every(player => player.teamId === 2));
+});
+
+test('ranks the best 15 on the same scoring criteria as Match & Player', async () => {
+  const extraPlayers = Array.from({ length: 17 }, (_, index) => ({ ...dashboard.players[0], id: 1000 + index,
+    web_name: `Extra player ${index}`, expected_goals: String(index + 3) }));
+  const data = { ...dashboard, players: [...dashboard.players, ...extraPlayers], fixtures: dashboard.fixtures.map(fixture =>
+    !fixture.finished ? fixture : { ...fixture, team_h_score: fixture.team_h === 1 ? 4 : 1, team_a_score: fixture.team_a === 1 ? 4 : 1 }) };
+  const selected = [fixtures[0]];
+  const h2h = await analysis({ fpl: { getLive: async id => playerEvidence(id, data) } })(data, selected, gameweek, cutoff);
+  assert.deepEqual(h2h.players.map(player => player.id), extraPlayers.slice(-15).reverse().map(player => player.id));
+  const old = predictMatchWinners(data, selected, gameweek, [4, 3, 2].map(event => playerEvidence(event, data)));
+  assert.equal(old.matches[0].picks[0].id, h2h.players[0].id);
+  assert.equal(old.matches[0].picks[0].predicted, roundRuleBasedPoints(h2h.players[0].performanceScore));
+});
+
+test('sums eligible fixtures only and keeps each player unique in a Double Gameweek', async () => {
+  const second = { ...fixtures[0], id: 107, team_h: 2, team_a: 1, kickoff_time: '2026-08-21T15:00:00Z' };
+  const scheduled = [fixtures[0], second];
+  const history = new Map([[101, histories.get(101)], [107, [1, 2, 3, 4].map(id => meeting(id, 2, 1, 1, 1))]]);
+  const scorePlayer = createFixturePlayerScorer(dashboard, scheduled, gameweek, [4, 3, 2].map(event => playerEvidence(event)));
+  const report = await analysis({ history, scheduled })(dashboard, scheduled, gameweek, cutoff);
+  assert.deepEqual(report.matches.map(match => match.eligibleTeamIds), [[1], [2, 1]]);
+  assert.equal(report.players.length, 4);
+  for (const player of dashboard.players.slice(0, 4)) {
+    const expected = scorePlayer(player, 107) + (player.team === 1 ? scorePlayer(player, 101) : 0);
+    assert.equal(report.players.find(candidate => candidate.id === player.id).performanceScore, expected);
+  }
 });
 
 test('offers H2H through the prediction API as an independent analysis', async () => {
@@ -101,7 +154,7 @@ test('offers H2H through the prediction API as an independent analysis', async (
   let saved = [];
   const requests = [];
   const history = { read: async () => saved, update: async transform => { saved = transform(saved); } };
-  const api = createApiHandler(fpl, predictionService(fpl, { history, headToHead: analysis(histories, requests), now: () => cutoff }));
+  const api = createApiHandler(fpl, predictionService(fpl, { history, headToHead: analysis({ requests, fpl }), now: () => cutoff }));
   const url = path => new URL(`http://localhost/api/${path}`);
   const refresh = await api('POST', url(`prediction-data?gameweek=${gameweek}`));
   const { token } = await refresh.json();
@@ -116,7 +169,7 @@ test('offers H2H through the prediction API as an independent analysis', async (
   const report = await response.json();
   assert.equal(report.strategy, 'head-to-head');
   assert.equal(report.matches[2].outcome, 'draw');
-  assert.ok(report.matches[2].players.length > 0);
+  assert.ok(report.players.some(player => player.teamId === 5) && report.players.some(player => player.teamId === 6));
   assert.equal(saved.length, 1);
   assert.equal(saved[0].id, original.id);
   const repeated = await (await post('match-winners')).json();
