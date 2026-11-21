@@ -42,6 +42,7 @@ Select **Special Rules** and click **Analyse FPL Players** after refreshing the 
 - **Special Rule** lists players who started at least one match in each of the latest three completed Gameweeks, regardless of minutes played. They must have scored or assisted in the oldest of the three and recorded zero goals and zero assists in both more recent Gameweeks.
 - **Special Rule2** lists all players with a goal or assist in each of the first two of four consecutive completed Gameweeks and zero goals and zero assists in each of the last two. Returns from substitute appearances also count.
 - **Special Rule3** lists all players who started at least one match in each of the latest three consecutive completed Gameweeks, regardless of minutes played. They must have scored or assisted in each of the first two and recorded zero goals and zero assists in the latest.
+- **Special Rule4** lists all players who started at least one match and recorded at least one goal or assist in each of the latest three consecutive completed Gameweeks, regardless of minutes played.
 
 ## Browse players and your public squad
 
