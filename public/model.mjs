@@ -7,6 +7,11 @@ export function upcomingWeeks(events, count, now = Date.now()) {
     .sort((a, b) => Date.parse(a.deadline_time) - Date.parse(b.deadline_time)).slice(0, count);
 }
 
+export function remainingFixtures(fixtures, gameweek, now) {
+  return fixtures.filter(fixture => fixture.event === gameweek && !fixture.started && !fixture.finished
+    && !fixture.finished_provisional && Date.parse(fixture.kickoff_time) > now);
+}
+
 export function availability(player) {
   if (player.status !== 'a' && player.status !== 'd') return 0;
   const reported = player.chance_of_playing_next_round;

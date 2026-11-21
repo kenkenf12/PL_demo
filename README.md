@@ -17,9 +17,11 @@ The Worker serves the dashboard and its `/api` routes from the same URL. An anon
 ## Predict a Gameweek squad
 
 1. Select a Gameweek, then click **Refresh FPL Data**. Opening the dashboard and refreshing both try the official API first. The page shows the dataset source, last successful fetch time, Gameweek coverage, and completeness.
-2. Select a strategy, then click **Analyse FPL Players**. **Current FPL Ranking**, **Previous Gameweek Performance**, and **Recent Performance Form** project squad points. **Match & Player** gives a fixture report and its own top 15. **News & Expert Opinion Analysis** returns its own ranked list. These strategies are available before the Gameweek deadline.
+2. Select a strategy, then click **Analyse FPL Players** before the Gameweek deadline. **Current FPL Ranking**, **Previous Gameweek Performance**, and **Recent Performance Form** project squad points. **Match & Player** gives a fixture report and its own top 15. **News & Expert Opinion Analysis** returns its own ranked list.
 3. The squad fits the standard £100m budget and three-player club limit, with two goalkeepers, five defenders, five midfielders and three forwards. The total adds all 15 player forecasts before captaincy. A dash indicates insufficient scoring evidence.
 4. In **Prediction history**, compare saved results across strategies and Gameweeks. Click **Refresh FPL Data** after scoring is final to record actuals. Results report mean absolute error per player with both a forecast and an official result. The comparison uses the latest saved prediction per strategy and Gameweek. The local Node server saves predictions in `.fpl-data/predictions.json`.
+
+After the FPL deadline, select a strategy and click **Post-Deadline Preview** to analyse fixtures with a published kick-off still ahead. The preview uses players from clubs with remaining fixtures and stays separate from Prediction history and accuracy comparisons. Squad strategies show a ranked shortlist if the remaining clubs cannot form a legal squad.
 
 Current ranking uses season points, playing time, and FPL form. Previous Gameweek Performance uses points, minutes, and individual stats from the latest completed Gameweek before the selected one. Both use the selected Gameweek's official fixtures and current availability.
 

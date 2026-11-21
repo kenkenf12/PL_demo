@@ -207,6 +207,11 @@ test('keeps provisional scores out of saved actuals and enforces deadlines durin
   const recovery = await service.refresh(3);
   assert.equal(recovery.week.finished, false);
   await assert.rejects(service.analyse(3, 'ranking', recovery.token), { status: 409, message: /deadline has passed/ });
+  const beforePreview = records.length;
+  const preview = await service.preview(3, 'ranking', recovery.token);
+  assert.equal(preview.preview.fixtureCount, 10);
+  assert.equal(preview.players.length, 15);
+  assert.equal(records.length, beforePreview);
 });
 
 test('warns when there is no validated data to recover', async t => {

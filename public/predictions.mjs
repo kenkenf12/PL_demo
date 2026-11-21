@@ -1,4 +1,4 @@
-import { forecast, price } from './model.mjs';
+import { forecast, price, remainingFixtures } from './model.mjs';
 
 const strategyName = {
   ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance',
@@ -12,6 +12,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const strategy = $('#prediction-strategy');
   const refresh = $('#refresh');
   const analyse = $('#analyse');
+  const preview = $('#prediction-preview');
   const refreshStatus = $('#refresh-status');
   const dataStatus = $('#data-status');
   const analysisStatus = $('#analysis-status');
@@ -38,16 +39,28 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     week.value = events.some(event => event.id === Number(selected)) ? selected : '';
   }
 
+  function canPreview(time) {
+    return Boolean(ready && !ready.week.finished && Date.parse(ready.week.deadline_time) <= time
+      && remainingFixtures(ready.dashboard.fixtures, ready.week.id, time).length);
+  }
+
   function updateControls() {
-    const locked = ready && (ready.week.finished || Date.parse(ready.week.deadline_time) <= Date.now());
+    const time = Date.now();
+    const locked = ready && (ready.week.finished || Date.parse(ready.week.deadline_time) <= time);
+    const previewAvailable = canPreview(time);
+    const specialRules = strategy.value === 'special-rules';
     week.disabled = busy;
     refresh.disabled = busy || !week.value;
     strategy.disabled = busy || !ready;
     for (const option of strategy.options) {
-      option.disabled = Boolean(locked && option.value && option.value !== 'special-rules');
+      option.disabled = Boolean(locked && !previewAvailable && option.value && option.value !== 'special-rules');
     }
-    analyse.disabled = strategy.disabled || !strategy.value || strategy.selectedOptions[0]?.disabled
+    const unavailable = strategy.disabled || !strategy.value || strategy.selectedOptions[0]?.disabled
       || (strategy.value === 'previous' && !ready.previousWeek);
+    analyse.hidden = previewAvailable && !specialRules;
+    analyse.disabled = unavailable || Boolean(locked && !specialRules);
+    preview.hidden = !analyse.hidden;
+    preview.disabled = unavailable || preview.hidden;
   }
 
   function showAnalysis(message) {
@@ -79,6 +92,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   function squadView(record) {
     const { players, accuracy, shortlist } = record;
+    const emptyShortlist = record.strategy === 'recent' ? 'No eligible players had a verified non-EPL appearance in the 14-day window.'
+      : 'No eligible players are available for the remaining fixtures.';
     const previousWeek = record.gameweek - 1;
     const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
     const comparison = accuracy && accuracy.meanAbsoluteError != null
@@ -97,12 +112,12 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${record.projectedCount < players.length ? `<p>${record.projectedCount} of ${players.length} players have a point estimate.</p>` : ''}
       ${shortlist ? `<p>${players.length
         ? 'Too few eligible players to form a legal squad. Ranked shortlist shown.'
-        : 'No eligible players had a verified non-EPL appearance in the 14-day window.'}</p>`
+        : emptyShortlist}</p>`
         : `<p>Captain <strong>${html(players.find(player => player.id === record.captain)?.name)}</strong> · Vice-captain <strong>${html(players.find(player => player.id === record.viceCaptain)?.name)}</strong></p>
           <p class="prediction-caption">Squad totals add all 15 players before captaincy.</p>`}
       ${coverage ? `<p class="prediction-caption">${html(coverage)}</p>` : ''}
       ${comparison}
-      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${shortlist ? 'Recent form shortlist' : 'Predicted 15-player squad'}">
+      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${shortlist ? 'Player shortlist' : 'Predicted 15-player squad'}">
         <table><thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th><th scope="col">Price</th>
         ${previousWeek > 0 ? `<th scope="col" title="Official FPL points once the Gameweek is final">GW${previousWeek} actual points</th>` : ''}
         <th scope="col">GW${record.gameweek} predicted points</th>
@@ -377,10 +392,13 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       hideResults();
       showSnapshot(ready.dashboard);
       onRefresh(ready.dashboard);
-      const closed = ready.week.finished || Date.parse(ready.week.deadline_time) <= Date.now();
+      const time = Date.now();
+      const closed = ready.week.finished || Date.parse(ready.week.deadline_time) <= time;
       const loaded = ready.dashboard.refreshError ? `Using cached historical data for Gameweek ${ready.week.id}. ${ready.dashboard.refreshError}`
         : `Gameweek ${ready.week.id} data refreshed.`;
-      refreshStatus.textContent = [loaded, closed ? 'The prediction deadline has passed.' : '',
+      const availability = !closed ? '' : canPreview(time) ? 'The FPL deadline has passed. Preview remaining fixtures.'
+        : 'The FPL deadline has passed. A preview requires a remaining fixture with a published kick-off.';
+      refreshStatus.textContent = [loaded, availability,
         ready.previousError ?? (ready.previousSource === 'Cached Historical Data' ? `Using cached Gameweek ${ready.previousWeek} scoring.` : ''),
         ready.historyError].filter(Boolean).join(' ');
       await loadHistory();
@@ -393,21 +411,24 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     }
   });
   const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView, 'team-binary': teamBinaryView };
-  analyse.addEventListener('click', async () => {
+  async function runAnalysis(usePreview) {
     busy = true;
     hideResults();
-    showAnalysis(`Analysing Gameweek ${week.value}…`);
+    showAnalysis(`${usePreview ? 'Preparing a preview for' : 'Analysing'} Gameweek ${week.value}…`);
     updateControls();
     try {
       const query = new URLSearchParams({ gameweek: week.value, strategy: strategy.value, token: ready.token });
-      const record = await request(`/api/predictions?${query}`, 'POST');
+      const endpoint = usePreview ? '/api/prediction-preview' : '/api/predictions';
+      const record = await request(`${endpoint}?${query}`, 'POST');
+      const previewNotice = record.preview ? `<p class="notice"><strong>Post-deadline preview</strong> · ${record.preview.fixtureCount}
+        remaining ${record.preview.fixtureCount === 1 ? 'fixture' : 'fixtures'} · Separate from Prediction history</p>` : '';
       if (record.strategy === 'news') {
-        newsResult.innerHTML = newsView(record);
+        newsResult.innerHTML = previewNotice + newsView(record);
         newsResult.hidden = false;
         showAnalysis('');
         return;
       }
-      result.innerHTML = (analysisViews[record.strategy] ?? predictionView)(record);
+      result.innerHTML = previewNotice + (analysisViews[record.strategy] ?? predictionView)(record);
       result.hidden = false;
       showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
         : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
@@ -418,7 +439,9 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       busy = false;
       updateControls();
     }
-  });
+  }
+  analyse.addEventListener('click', () => runAnalysis(false));
+  preview.addEventListener('click', () => runAnalysis(true));
   history.addEventListener('click', event => {
     const button = event.target.closest('[data-saved-prediction]');
     const record = records.find(item => item.id === button?.dataset.savedPrediction);
