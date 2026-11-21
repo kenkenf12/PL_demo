@@ -21,7 +21,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   let busy = false;
   let records = [];
   let historyRequest = 0;
-  const newsDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
+  const shortDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
   const percent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 }).format;
 
   function hideResults() {
@@ -169,6 +169,39 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   const predictionView = record => record.strategy === 'match-winners' ? matchWinnerView(record) : squadView(record);
 
+  function headToHeadView({ gameweek, matches, sources }) {
+    const split = rates => rates ? [rates.home, rates.draw, rates.away].map(percent).join(' / ') : '—';
+    const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
+    const prediction = match => {
+      if (!match.outcome) return html(match.reason);
+      if (match.outcome === 'draw') return 'Draw';
+      const side = match.outcome === 'home' ? 'Home' : 'Away';
+      return `${side} win · ${html(match[match.outcome].name)}`;
+    };
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Head-to-Head (H2H) Analysis</h3></div>
+      ${matches.length ? `<p class="prediction-caption">H2H win, draw and loss percentages are from the upcoming home team's perspective. Open a fixture to see the meetings and eligible players.</p>
+        <div class="scroll-table" tabindex="0" aria-label="Head-to-head match forecasts"><table>
+        <thead><tr><th scope="col">Fixture</th><th scope="col">H2H win / draw / loss</th>
+          <th scope="col">Forecast home / draw / away</th><th scope="col">Predicted outcome</th></tr></thead>
+        <tbody>${matches.map(match => `<tr><td><strong>${matchup(match)}</strong></td><td>${split(match.h2h)}
+          <span class="player-meta">${match.meetings.length}/4 verified meetings</span></td>
+          <td>${split(match.probabilities)}</td><td>${prediction(match)}</td></tr>`).join('')}</tbody></table></div>
+        ${matches.map(match => `<details class="provenance"><summary>${matchup(match)} · ${match.players.length} eligible players</summary>
+          ${match.probabilities ? `<p class="prediction-caption">Forecast uses ${percent(1 - match.h2hWeight)} season model and ${percent(match.h2hWeight)} H2H results.</p>` : ''}
+          ${match.meetings.length ? `<div class="scroll-table" tabindex="0" aria-label="Recent head-to-head meetings"><table>
+            <thead><tr><th scope="col">Date</th><th scope="col">Competition</th><th scope="col">Result</th></tr></thead>
+            <tbody>${match.meetings.map(meeting => `<tr><td>${shortDate.format(new Date(meeting.kickoff))}</td><td>${html(meeting.competition)}</td>
+              <td>${html(meeting.home)} ${meeting.homeScore}–${meeting.awayScore} ${html(meeting.away)}</td></tr>`).join('')}</tbody></table></div>`
+            : '<p>No head-to-head results were available for this fixture.</p>'}
+          ${match.players.length ? `<h4>Eligible players</h4><div class="scroll-table" tabindex="0" aria-label="Eligible players"><table>
+            <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th></tr></thead>
+            <tbody>${match.players.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td><td>${html(player.position)}</td></tr>`).join('')}</tbody>
+            </table></div>` : ''}</details>`).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary><ul class="news-evidence">
+        ${sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.label)}</a>
+        <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
+  }
+
   function specialRuleTable({ weeks, players }, label, showStarts) {
     if (!players.length) return `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`;
     return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
@@ -207,12 +240,12 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <span>${pick.count} independent positive ${pick.count === 1 ? 'mention' : 'mentions'} · ${html(pick.sentiment)}</span></div>
       <p>${html(pick.explanation)}</p>
       <ul class="news-evidence">${pick.sources.map(source => `<li>
-        <strong>${html(source.publisher)}</strong> · <time datetime="${html(source.publishedAt)}">${newsDate.format(new Date(source.publishedAt))}</time>
+        <strong>${html(source.publisher)}</strong> · <time datetime="${html(source.publishedAt)}">${shortDate.format(new Date(source.publishedAt))}</time>
         <a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.title)}</a>
       </li>`).join('')}</ul></li>`).join('')}</ol>`
       : `<p>${coverage.publishers ? 'No verified positive player mentions in the last seven days.' : 'Publisher feeds are unavailable. Try analysing again.'}</p>`;
     return `<h3 id="news-title">News &amp; Expert Opinion Analysis</h3>
-      <p class="prediction-caption">${newsDate.format(new Date(report.since))} to ${newsDate.format(new Date(report.searchedAt))} · ${coverage.articles} articles from ${coverage.publishers} of ${coverage.expectedPublishers} publishers</p>
+      <p class="prediction-caption">${shortDate.format(new Date(report.since))} to ${shortDate.format(new Date(report.searchedAt))} · ${coverage.articles} articles from ${coverage.publishers} of ${coverage.expectedPublishers} publishers</p>
       ${listing}
       ${report.sources.length ? `<details class="provenance"><summary>Publisher feeds searched</summary><ul class="news-evidence">
         ${report.sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.publisher)}</a>
@@ -313,7 +346,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         showAnalysis('');
         return;
       }
-      result.innerHTML = record.strategy === 'special-rules' ? specialRulesView(record) : predictionView(record);
+      result.innerHTML = record.strategy === 'head-to-head' ? headToHeadView(record)
+        : record.strategy === 'special-rules' ? specialRulesView(record) : predictionView(record);
       result.hidden = false;
       showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
         : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
