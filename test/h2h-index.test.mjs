@@ -52,7 +52,7 @@ function provider(fixtures, records, requests) {
 
 test('compares the latest three verified meetings and runs the shared squad selection in analysis and preview', async () => {
   const [first, second, third, partial] = fixtures;
-  const [latest, reverse, next, fourth, older] = pastMeetings(first, [[1, 0], [1, 4], [1, 3], [0, 1], [0, 2]]);
+  const [latest, reverse, next, fourth, older] = pastMeetings(first, [[1, 1], [4, 1], [3, 1], [0, 1], [0, 2]]);
   const partialMeetings = pastMeetings(partial, [[1, 0], [0, 0]]);
   const records = new Map([
     [first.id, [older, next, latest, reverse, latest, fourth,
@@ -61,7 +61,7 @@ test('compares the latest three verified meetings and runs the shared squad sele
       { ...latest, id: '603', date: '2026-10-15T15:00:00Z', competitors: sides(1, 3, 4, 0) },
       { ...latest, id: '604', date: '2026-10-16T15:00:00Z', competitors: sides(1, 2, null, 0) },
       { ...latest, id: String(first.id + 900) }]],
-    [second.id, pastMeetings(second, [[0, 1], [0, 1], [1, 1], [0, 2]])],
+    [second.id, pastMeetings(second, [[0, 1], [0, 1], [1, 2], [0, 2]])],
     [third.id, pastMeetings(third, [[1, 1], [2, 0], [0, 1], [1, 1]])],
     [partial.id, partialMeetings]
   ]);
@@ -81,12 +81,12 @@ test('compares the latest three verified meetings and runs the shared squad sele
   assert.equal(report.requiredMeetings, 3);
   const [homeWin, awayWin, draw, noPrediction] = report.matches;
   assert.deepEqual(homeWin.meetings.map(meeting => meeting.id), [latest.id, reverse.id, next.id]);
-  const rates = team => [team.goalProbability, team.cleanSheetProbability, team.teamIndex];
+  const rates = team => [team.goalProbability, team.cleanSheetProbability, team.winOrDrawProbability, team.teamIndex];
   assert.deepEqual(report.matches.map(match => [rates(match.home), rates(match.away), match.outcome, match.eligibleTeamIds]), [
-    [[1, 1 / 3, 400 / 3], [2 / 3, 0, 200 / 3], 'home', [1]],
-    [[1 / 3, 0, 100 / 3], [1, 2 / 3, 500 / 3], 'away', [4]],
-    [[2 / 3, 1 / 3, 100], [2 / 3, 1 / 3, 100], 'draw', [5, 6]],
-    [[null, null, null], [null, null, null], null, []]
+    [[1, 0, 1, 200], [1, 0, 1 / 3, 400 / 3], 'home', [1]],
+    [[1 / 3, 0, 0, 100 / 3], [1, 2 / 3, 1, 800 / 3], 'away', [4]],
+    [[2 / 3, 1 / 3, 2 / 3, 500 / 3], [2 / 3, 1 / 3, 2 / 3, 500 / 3], 'draw', [5, 6]],
+    [[null, null, null, null], [null, null, null, null], null, []]
   ]);
   assert.equal(noPrediction.meetings.length, 2);
   for (const match of [homeWin, awayWin, draw, noPrediction]) {

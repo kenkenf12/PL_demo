@@ -220,6 +220,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const indexOutcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
   const indexTeamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
     <td>${seasonRate(team.goalProbability)}</td><td>${seasonRate(team.cleanSheetProbability)}</td>
+    <td>${seasonRate(team.winOrDrawProbability)}</td>
     <td><strong>${seasonIndexValue(team.teamIndex)}</strong></td>`;
 
   function seasonPlayerTable(label, players, rateLabel) {
@@ -255,10 +256,10 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       : 'No completed Gameweeks are available yet.';
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season Index Match Predictor</h3></div>
       <h4>Team Index</h4>
-      <p class="prediction-caption">${scope} The index adds the goal and clean-sheet percentages.</p>
+      <p class="prediction-caption">${scope} The index adds the goal, clean-sheet, and win-or-draw percentages.</p>
       <div class="scroll-table" tabindex="0" aria-label="Season team indices"><table>
         <thead><tr><th scope="col">Club</th><th scope="col">Matches</th><th scope="col">Goal Probability (%)</th>
-          <th scope="col">Clean Sheet Probability (%)</th><th scope="col">Team Index</th></tr></thead>
+          <th scope="col">Clean Sheet Probability (%)</th><th scope="col">Win or Draw Percentage (%)</th><th scope="col">Team Index</th></tr></thead>
         <tbody>${teams.map(team => `<tr>${indexTeamCells(team)}</tr>`).join('')}</tbody></table></div>
       <h4>Match Outcome Analysis</h4>
       ${matches.length ? `${indexMatchOutcomes(matches, 'Season Index match predictions', 'Insufficient season data')}
@@ -280,10 +281,11 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   function h2hIndexView({ gameweek, matches, requiredMeetings, squad, sources }) {
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · H2H Index Match Predictor</h3></div>
       ${matches.length ? `<h4>H2H Team Index</h4>
-        <p class="prediction-caption">The index adds the goal and clean-sheet percentages from the ${requiredMeetings} most recent completed head-to-head meetings.</p>
+        <p class="prediction-caption">The index adds the goal, clean-sheet, and win-or-draw percentages from the ${requiredMeetings} most recent completed head-to-head meetings.</p>
         <div class="scroll-table" tabindex="0" aria-label="Head-to-head team indices"><table>
           <thead><tr><th scope="col">Fixture</th><th scope="col">Club</th><th scope="col">Verified meetings</th>
-            <th scope="col">Goal Probability (%)</th><th scope="col">Clean Sheet Probability (%)</th><th scope="col">Team Index</th></tr></thead>
+            <th scope="col">Goal Probability (%)</th><th scope="col">Clean Sheet Probability (%)</th>
+            <th scope="col">Win or Draw Percentage (%)</th><th scope="col">Team Index</th></tr></thead>
           ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${indexTeamCells(match.home)}</tr>
             <tr>${indexTeamCells(match.away)}</tr></tbody>`).join('')}</table></div>
         <h4>Match Outcome Analysis</h4>

@@ -64,7 +64,7 @@ test('season index leaves the squad empty before the first completed match', asy
   assert.equal(latestCompletedGameweek, null);
   for (const team of [match.home, match.away]) {
     assert.equal(team.completedMatches, 0);
-    assert.deepEqual([team.goalProbability, team.cleanSheetProbability, team.teamIndex], [null, null, null]);
+    assert.deepEqual([team.goalProbability, team.cleanSheetProbability, team.winOrDrawProbability, team.teamIndex], [null, null, null, null]);
   }
   assert.deepEqual([match.outcome, match.eligibleTeamIds], [null, []]);
   assert.deepEqual(squad.flatMap(group => group.players), []);
@@ -89,9 +89,10 @@ test('season index applies fixture eligibility to the shared player rankings and
   const report = await response.json();
   assert.equal(report.strategy, 'season-index');
   assert.equal(report.latestCompletedGameweek, 6);
-  assert.deepEqual(report.teams.map(({ completedMatches, goalProbability, cleanSheetProbability, teamIndex }) =>
-    [completedMatches, goalProbability, cleanSheetProbability, teamIndex]), [
-    [6, 5 / 6, 3 / 6, 800 / 6], [5, 2 / 5, 3 / 5, 100], [4, 1 / 4, 1 / 4, 50], [5, 3 / 5, 2 / 5, 100]
+  assert.deepEqual(report.teams.map(team => [team.completedMatches, team.goalProbability, team.cleanSheetProbability,
+    team.winOrDrawProbability, team.teamIndex]), [
+    [6, 5 / 6, 3 / 6, 5 / 6, 1300 / 6], [5, 2 / 5, 3 / 5, 3 / 5, 160],
+    [4, 1 / 4, 1 / 4, 2 / 4, 100], [5, 3 / 5, 2 / 5, 3 / 5, 160]
   ]);
   assert.deepEqual(report.matches.map(match => [match.id, match.outcome, match.eligibleTeamIds]), [
     [99, 'home', [1]], [100, 'away', [1]], [101, 'draw', [2, 4]]
@@ -141,10 +142,12 @@ test('season index treats equal fractions as a draw and leaves matches with miss
   const fixtures = [{ ...upcoming, event: 11 }, { ...upcoming, id: 100, event: 11, team_a: 4 }];
   const dashboard = { ...seasonDashboard(), events, fixtures: [...results, ...fixtures] };
   const { teams: [home, away, , noData], matches } = await createSeasonIndexAnalysis(fpl)(dashboard, fixtures, 11, null, cutoff);
-  assert.notEqual(home.goalProbability + home.cleanSheetProbability, away.goalProbability + away.cleanSheetProbability);
-  assert.deepEqual([home.teamIndex, away.teamIndex], [60, 60]);
+  const sumRates = team => team.goalProbability + team.cleanSheetProbability + team.winOrDrawProbability;
+  assert.notEqual(sumRates(home), sumRates(away));
+  assert.deepEqual([home.teamIndex, away.teamIndex], [120, 120]);
   assert.equal(matches[0].outcome, 'draw');
   assert.deepEqual(matches[0].eligibleTeamIds, [1, 2]);
-  assert.deepEqual([noData.goalProbability, noData.cleanSheetProbability, noData.teamIndex], [null, null, null]);
+  assert.deepEqual([noData.goalProbability, noData.cleanSheetProbability, noData.winOrDrawProbability, noData.teamIndex],
+    [null, null, null, null]);
   assert.deepEqual([matches[1].outcome, matches[1].eligibleTeamIds, matches[1].attacking, matches[1].defensive], [null, [], [], []]);
 });
