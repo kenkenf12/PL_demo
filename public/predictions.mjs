@@ -239,36 +239,24 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <span>${source.origin ? `${html(source.origin)} · ` : ''}Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
   }
 
-  function teamBinaryView({ strategy, gameweek, matches, completedMatches, sources }) {
-    const seasonBased = strategy === 'season-binary';
-    const title = seasonBased ? 'Season-Based Goals &amp; Clean Sheets' : 'Team Goals &amp; Clean Sheets';
+  function seasonBinaryView({ gameweek, matches, sources }) {
     const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
-    const goal = predicted => predicted ? 'Goal' : 'No Goal';
-    const cleanSheet = predicted => predicted ? 'Clean Sheet' : 'No Clean Sheet';
     const seasonPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 3 }).format;
     const seasonRate = value => value == null ? '—' : seasonPercent(value);
-    const predictionCell = (label, likelihood, description) => `<td><strong>${label}</strong>
-      <span class="player-meta">${percent(likelihood)} ${description}</span></td>`;
     const ratePair = (positive, negative, positiveMatches, negativeMatches) => `<td>
       <strong>${seasonRate(positive)} / ${seasonRate(negative)}</strong>
       <span class="player-meta">${positiveMatches} / ${negativeMatches} matches</span></td>`;
-    const teamCells = team => `<th scope="row">${html(team.name)}</th>
-      ${seasonBased ? `<td>${team.completedMatches}</td>
-        ${ratePair(team.goalProbability, team.noGoalProbability, team.goalMatches, team.noGoalMatches)}
-        ${ratePair(team.cleanSheetProbability, team.noCleanSheetProbability, team.cleanSheetMatches, team.noCleanSheetMatches)}`
-        : `${predictionCell(goal(team.goal), team.goalProbability, 'to score')}
-          ${predictionCell(cleanSheet(team.cleanSheet), team.cleanSheetProbability, 'clean sheet chance')}`}`;
-    const playerTable = (label, players, predictionLabel, formatPrediction) => `<h4>${label}</h4>
+    const teamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
+      ${ratePair(team.goalProbability, team.noGoalProbability, team.goalMatches, team.noGoalMatches)}
+      ${ratePair(team.cleanSheetProbability, team.noCleanSheetProbability, team.cleanSheetMatches, team.noCleanSheetMatches)}`;
+    const playerTable = (label, players, rateLabel) => `<h4>${label}</h4>
       ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
         <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
-          <th scope="col">${predictionLabel}</th><th scope="col">Projected FPL points</th></tr></thead>
+          <th scope="col">${rateLabel}</th><th scope="col">Projected FPL points</th></tr></thead>
         <tbody>${players.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td>
-          <td>${html(player.position)}</td><td>${formatPrediction(player.priority)}</td>
+          <td>${html(player.position)}</td><td>${seasonRate(player.priority)}</td>
           <td>${forecast(player.performanceScore)}</td></tr>`).join('')}</tbody></table></div>` : '<p>No players listed for these positions.</p>'}`;
 
-    const coverage = seasonBased ? 'Rates use each club’s completed league matches from earlier completed Gameweeks this season.'
-      : `${completedMatches ? `Based on ${completedMatches} completed league matches.`
-        : 'Team scoring chances start at 50% before league results are available.'} Goal is predicted at 50% or higher.`;
     const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
     const outcomeRow = match => {
       const { percentages, mostLikely, uncertain } = match.outcomeAnalysis;
@@ -278,26 +266,23 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         ? `<strong>${result}</strong>${mostLikely.length > 1 ? ' (tied)' : ''}${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
         : 'Insufficient season data'}</td></tr>`;
     };
-    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · ${title}</h3></div>
-      ${matches.length ? `<p class="prediction-caption">${coverage}</p>
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season-Based Goals &amp; Clean Sheets</h3></div>
+      ${matches.length ? `<p class="prediction-caption">Rates use each club’s completed league matches from earlier completed Gameweeks this season.</p>
         <div class="scroll-table" tabindex="0" aria-label="Team goal and clean-sheet predictions"><table>
         <thead><tr><th scope="col">Fixture</th><th scope="col">Team</th>
-          ${seasonBased ? '<th scope="col">Season matches</th><th scope="col">Goal / No Goal</th><th scope="col">Clean Sheet / No Clean Sheet</th>'
-            : '<th scope="col">Goal prediction</th><th scope="col">Clean sheet prediction</th>'}</tr></thead>
+          <th scope="col">Season matches</th><th scope="col">Goal / No Goal</th><th scope="col">Clean Sheet / No Clean Sheet</th></tr></thead>
         ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${matchup(match)}</th>${teamCells(match.home)}</tr>
           <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
-        ${seasonBased ? `<h4>Match Outcome Analysis</h4>
+        <h4>Match Outcome Analysis</h4>
           <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain.</p>
           <div class="scroll-table" tabindex="0" aria-label="Season-based match outcome estimates"><table>
           <thead><tr><th scope="col">Fixture</th><th scope="col">Home Win</th><th scope="col">Draw</th>
             <th scope="col">Away Win</th><th scope="col">Most likely</th></tr></thead>
-          <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>` : ''}
-        <p class="prediction-caption">Open a fixture to see both player groups. ${seasonBased
-          ? 'Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.'
-          : 'Players with scores appear first, with priority given to the relevant team prediction.'}</p>
+          <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>
+        <p class="prediction-caption">Open a fixture to see both player groups. Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.</p>
         ${matches.map(match => `<details class="provenance"><summary>${matchup(match)} · Player analysis</summary>
-          ${playerTable('Attacking players', match.attacking, seasonBased ? 'Club goal rate' : 'Team goal prediction', seasonBased ? seasonRate : goal)}
-          ${playerTable('Defensive players', match.defensive, seasonBased ? 'Club clean-sheet rate' : 'Team clean sheet prediction', seasonBased ? seasonRate : cleanSheet)}
+          ${playerTable('Attacking players', match.attacking, 'Club goal rate')}
+          ${playerTable('Defensive players', match.defensive, 'Club clean-sheet rate')}
         </details>`).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
@@ -440,8 +425,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView,
-    'team-binary': teamBinaryView, 'season-binary': teamBinaryView };
+  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView, 'season-binary': seasonBinaryView };
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();
