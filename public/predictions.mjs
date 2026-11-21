@@ -217,6 +217,10 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const seasonRate = value => value == null ? '—' : seasonPercent(value);
   const seasonIndexNumber = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 3 }).format;
   const seasonIndexValue = value => value == null ? '—' : seasonIndexNumber(value);
+  const indexOutcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
+  const indexTeamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
+    <td>${seasonRate(team.goalProbability)}</td><td>${seasonRate(team.cleanSheetProbability)}</td>
+    <td><strong>${seasonIndexValue(team.teamIndex)}</strong></td>`;
 
   function seasonPlayerTable(label, players, rateLabel) {
     return `<h4>${label}</h4>
@@ -235,29 +239,57 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         </details>`;
   }
 
+  function indexMatchOutcomes(matches, label, missingData) {
+    return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
+        <thead><tr><th scope="col">Fixture</th><th scope="col">Home Index</th><th scope="col">Away Index</th>
+          <th scope="col">Predicted outcome</th></tr></thead>
+        <tbody>${matches.map(match => `<tr><th scope="row">${seasonMatchup(match)}</th>
+          <td>${seasonIndexValue(match.home.teamIndex)}</td><td>${seasonIndexValue(match.away.teamIndex)}</td>
+          <td>${match.outcome ? `<strong>${indexOutcomeLabels[match.outcome]}</strong>` : missingData}</td></tr>`).join('')}
+        </tbody></table></div>`;
+  }
+
   function seasonIndexView({ gameweek, teams, matches, latestCompletedGameweek, squad, sources }) {
     const scope = latestCompletedGameweek
       ? `Rates use completed Premier League matches from Gameweek 1${latestCompletedGameweek > 1 ? ` through Gameweek ${latestCompletedGameweek}` : ''}.`
       : 'No completed Gameweeks are available yet.';
-    const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season Index Match Predictor</h3></div>
       <h4>Team Index</h4>
       <p class="prediction-caption">${scope} The index adds the goal and clean-sheet percentages.</p>
       <div class="scroll-table" tabindex="0" aria-label="Season team indices"><table>
         <thead><tr><th scope="col">Club</th><th scope="col">Matches</th><th scope="col">Goal Probability (%)</th>
           <th scope="col">Clean Sheet Probability (%)</th><th scope="col">Team Index</th></tr></thead>
-        <tbody>${teams.map(team => `<tr><th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
-          <td>${seasonRate(team.goalProbability)}</td><td>${seasonRate(team.cleanSheetProbability)}</td>
-          <td><strong>${seasonIndexValue(team.teamIndex)}</strong></td></tr>`).join('')}</tbody></table></div>
+        <tbody>${teams.map(team => `<tr>${indexTeamCells(team)}</tr>`).join('')}</tbody></table></div>
       <h4>Match Outcome Analysis</h4>
-      ${matches.length ? `<div class="scroll-table" tabindex="0" aria-label="Season Index match predictions"><table>
-        <thead><tr><th scope="col">Fixture</th><th scope="col">Home Index</th><th scope="col">Away Index</th>
-          <th scope="col">Predicted outcome</th></tr></thead>
-        <tbody>${matches.map(match => `<tr><th scope="row">${seasonMatchup(match)}</th>
-          <td>${seasonIndexValue(match.home.teamIndex)}</td><td>${seasonIndexValue(match.away.teamIndex)}</td>
-          <td>${match.outcome ? `<strong>${outcomeLabels[match.outcome]}</strong>` : 'Insufficient season data'}</td></tr>`).join('')}
-        </tbody></table></div>
+      ${matches.length ? `${indexMatchOutcomes(matches, 'Season Index match predictions', 'Insufficient season data')}
         ${matches.filter(match => match.outcome).map(seasonPlayerAnalysis).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${seasonSquadView(squad)}
+      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
+  }
+
+  function h2hMeetingsView(match, requiredMeetings) {
+    const teamName = id => html((id === match.home.id ? match.home : match.away).name);
+    return `<details class="provenance"><summary>${seasonMatchup(match)} · ${match.meetings.length}/${requiredMeetings} verified meetings</summary>
+      ${match.meetings.length ? `<div class="scroll-table" tabindex="0" aria-label="Verified head-to-head meetings"><table>
+        <thead><tr><th scope="col">Date</th><th scope="col">Competition</th><th scope="col">Result</th></tr></thead>
+        <tbody>${match.meetings.map(meeting => `<tr><td>${shortDate.format(new Date(meeting.kickoff))}</td>
+          <td>${html(meeting.competition)}</td><td>${teamName(meeting.team_h)} ${meeting.team_h_score}–${meeting.team_a_score} ${teamName(meeting.team_a)}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<p>No verified meetings are available for this fixture.</p>'}</details>`;
+  }
+
+  function h2hIndexView({ gameweek, matches, requiredMeetings, squad, sources }) {
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · H2H Index Match Predictor</h3></div>
+      ${matches.length ? `<h4>H2H Team Index</h4>
+        <p class="prediction-caption">The index adds the goal and clean-sheet percentages from the ${requiredMeetings} most recent completed head-to-head meetings.</p>
+        <div class="scroll-table" tabindex="0" aria-label="Head-to-head team indices"><table>
+          <thead><tr><th scope="col">Fixture</th><th scope="col">Club</th><th scope="col">Verified meetings</th>
+            <th scope="col">Goal Probability (%)</th><th scope="col">Clean Sheet Probability (%)</th><th scope="col">Team Index</th></tr></thead>
+          ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${indexTeamCells(match.home)}</tr>
+            <tr>${indexTeamCells(match.away)}</tr></tbody>`).join('')}</table></div>
+        <h4>Match Outcome Analysis</h4>
+        ${indexMatchOutcomes(matches, 'H2H Index match predictions', 'Insufficient head-to-head data')}
+        ${matches.map(match => h2hMeetingsView(match, requiredMeetings)
+          + (match.outcome ? seasonPlayerAnalysis(match) : '')).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
       ${seasonSquadView(squad)}
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
@@ -400,7 +432,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView };
+  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView, 'h2h-index': h2hIndexView };
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();
