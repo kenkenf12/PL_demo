@@ -138,7 +138,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
   }
 
-  function matchWinnerView(record) {
+  function archivedMatchWinnerView(record) {
     const { matches, players, accuracy, sampleWeeks } = record;
     const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
     const actual = new Map(accuracy?.actual.map(player => [player.id, player.points]));
@@ -193,8 +193,6 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
   }
 
-  const predictionView = record => record.strategy === 'match-winners' ? matchWinnerView(record) : squadView(record);
-
   function headToHeadView({ gameweek, matches, players, sources }) {
     const split = rates => rates ? [rates.home, rates.draw, rates.away].map(percent).join(' / ') : '—';
     const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
@@ -239,7 +237,26 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <span>${source.origin ? `${html(source.origin)} · ` : ''}Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
   }
 
-  function seasonBinaryView({ gameweek, matches, sources }) {
+  function seasonSquadView(squad) {
+    const positionLabels = { GKP: 'Goalkeepers (GK)', DEF: 'Defenders (DEF)', MID: 'Midfielders (MID)', FWD: 'Forwards (FWD)' };
+    const selected = squad.reduce((sum, group) => sum + group.players.length, 0);
+    const required = squad.reduce((sum, group) => sum + group.required, 0);
+    const shortages = squad.filter(group => group.players.length < group.required)
+      .map(({ positionCode, required, players }) => `${required - players.length} ${positionCode === 'GKP' ? 'GK' : positionCode}`);
+    return `<h4>Final Top 15 player selection</h4>
+      <p>${selected} of ${required} players selected.</p>
+      ${shortages.length ? `<p>Insufficient eligible players. Missing ${shortages.join(', ')}.</p>` : ''}
+      <div class="scroll-table" tabindex="0" aria-label="Final season-based player selection"><table>
+        <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
+          <th scope="col">Performance score (projected FPL points)</th></tr></thead>
+        ${squad.map(({ positionCode, required, players }) => `<tbody>
+          <tr><th scope="rowgroup" colspan="4">${positionLabels[positionCode]} · ${players.length}/${required} selected</th></tr>
+          ${players.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td>
+            <td>${html(player.position)}</td><td>${forecast(player.performanceScore)}</td></tr>`).join('')}</tbody>`).join('')}
+      </table></div>`;
+  }
+
+  function seasonBinaryView({ gameweek, matches, squad, sources }) {
     const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
     const seasonPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 3 }).format;
     const seasonRate = value => value == null ? '—' : seasonPercent(value);
@@ -259,11 +276,12 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
     const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
     const outcomeRow = match => {
-      const { percentages, mostLikely, uncertain } = match.outcomeAnalysis;
+      const { percentages, mostLikely, predictedOutcome, uncertain } = match.outcomeAnalysis;
       const cells = Object.keys(outcomeLabels).map(key => `<td>${percentages ? percent(percentages[key] / 100) : '—'}</td>`).join('');
-      const result = mostLikely.map(key => outcomeLabels[key]).join(' / ');
+      const result = predictedOutcome ? outcomeLabels[predictedOutcome]
+        : `${mostLikely.map(key => outcomeLabels[key]).join(' / ')} (tied)`;
       return `<tr><th scope="row">${matchup(match)}</th>${cells}<td>${percentages
-        ? `<strong>${result}</strong>${mostLikely.length > 1 ? ' (tied)' : ''}${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
+        ? `<strong>${result}</strong>${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
         : 'Insufficient season data'}</td></tr>`;
     };
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season-Based Goals &amp; Clean Sheets</h3></div>
@@ -274,16 +292,17 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${matchup(match)}</th>${teamCells(match.home)}</tr>
           <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
         <h4>Match Outcome Analysis</h4>
-          <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain.</p>
+          <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain. A tie for first between Home Win and Away Win is shown as Draw.</p>
           <div class="scroll-table" tabindex="0" aria-label="Season-based match outcome estimates"><table>
           <thead><tr><th scope="col">Fixture</th><th scope="col">Home Win</th><th scope="col">Draw</th>
-            <th scope="col">Away Win</th><th scope="col">Most likely</th></tr></thead>
+            <th scope="col">Away Win</th><th scope="col">Predicted outcome</th></tr></thead>
           <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>
         <p class="prediction-caption">Open a fixture to see both player groups. Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.</p>
         ${matches.map(match => `<details class="provenance"><summary>${matchup(match)} · Player analysis</summary>
           ${playerTable('Attacking players', match.attacking, 'Club goal rate')}
           ${playerTable('Defensive players', match.defensive, 'Club clean-sheet rate')}
         </details>`).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${seasonSquadView(squad)}
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
 
@@ -443,10 +462,9 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         showAnalysis('');
         return;
       }
-      result.innerHTML = previewNotice + (analysisViews[record.strategy] ?? predictionView)(record);
+      result.innerHTML = previewNotice + (analysisViews[record.strategy] ?? squadView)(record);
       result.hidden = false;
-      showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
-        : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
+      showAnalysis(record.id ? (record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
       if (record.id) await loadHistory();
     } catch (error) {
       showAnalysis(error.message);
@@ -460,7 +478,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   history.addEventListener('click', event => {
     const button = event.target.closest('[data-saved-prediction]');
     const record = records.find(item => item.id === button?.dataset.savedPrediction);
-    if (record) openDialog('Saved prediction', predictionView(record));
+    if (record) openDialog('Saved prediction', (record.strategy === 'match-winners' ? archivedMatchWinnerView : squadView)(record));
   });
 
   gameweeks(Array.from({ length: 38 }, (_, index) => ({ id: index + 1, name: `Gameweek ${index + 1}` })));

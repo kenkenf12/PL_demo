@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createApiHandler } from '../lib/http.mjs';
-import { createFixturePlayerScorer } from '../lib/match-winner-strategy.mjs';
+import { createFixturePlayerScorer } from '../lib/fixture-player-scoring.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 import { createSeasonBinaryAnalysis } from '../lib/team-binary.mjs';
 
@@ -41,8 +41,8 @@ function seasonDashboard() {
     events: [...completed, { id: gameweek, deadline_time: '2026-10-23T13:30:00Z' }] };
 }
 
-function playerEvidence(event) {
-  return { event, sources: [{ url: `https://fpl.example/${event}` }], players: players.map(player => ({ id: player.id,
+function playerEvidence(event, roster = players) {
+  return { event, sources: [{ url: `https://fpl.example/${event}` }], players: roster.map(player => ({ id: player.id,
     minutes: 90, starts: 1, expected_goals: Number(player.expected_goals) / 6, expected_assists: 1 / 6, red_cards: 0,
     scoringMatches: [{ minutes: 90, saves: 0, yellow_cards: 0, red_cards: 0 }] })) };
 }
@@ -51,7 +51,7 @@ const fpl = { getLive: async event => playerEvidence(event) };
 
 test('uses every earlier completed season match across venues and keeps both binary dimensions independent', async () => {
   const dashboard = seasonDashboard();
-  const reports = [6, 5, 4].map(playerEvidence);
+  const reports = [6, 5, 4].map(event => playerEvidence(event));
   const report = await createSeasonBinaryAnalysis(fpl)(dashboard, [upcoming], gameweek, reports[0], cutoff);
   const { home, away, attacking, defensive } = report.matches[0];
   assert.deepEqual(home, { id: 1, name: 'Home club', completedMatches: 6,
@@ -61,7 +61,7 @@ test('uses every earlier completed season match across venues and keeps both bin
     goalMatches: 2, noGoalMatches: 3, cleanSheetMatches: 3, noCleanSheetMatches: 2,
     goalProbability: 2 / 5, noGoalProbability: 3 / 5, cleanSheetProbability: 3 / 5, noCleanSheetProbability: 2 / 5 });
   assert.deepEqual(report.matches[0].outcomeAnalysis,
-    { percentages: { home: 43.2, draw: 30.3, away: 26.5 }, mostLikely: ['home'], uncertain: true });
+    { percentages: { home: 43.2, draw: 30.3, away: 26.5 }, mostLikely: ['home'], predictedOutcome: 'home', uncertain: true });
   for (const team of [home, away]) {
     assert.equal(team.goalProbability + team.noGoalProbability, 1);
     assert.equal(team.cleanSheetProbability + team.noCleanSheetProbability, 1);
@@ -78,6 +78,30 @@ test('uses every earlier completed season match across venues and keeps both bin
   }
 });
 
+test('selects 15 unique players by position and uses all of a player’s upcoming fixtures', async () => {
+  const dashboard = seasonDashboard();
+  const fixtures = [upcoming, { ...upcoming, id: 100, team_h: 3, team_a: 1 }];
+  dashboard.fixtures.push(fixtures[1]);
+  dashboard.players = players.filter(player => player.team < 3).flatMap(player => Array.from({ length: 4 }, (_, index) => ({
+    ...player, id: player.id * 10 + index, expected_goals: String(Number(player.expected_goals) * (index + 1))
+  }))).concat(players.filter(player => player.team === 4));
+  const evidence = dashboard.players.filter(player => player.id !== 223);
+  const client = { getLive: async event => playerEvidence(event, evidence) };
+  const { matches, squad } = await createSeasonBinaryAnalysis(client)(dashboard, fixtures, gameweek, null, cutoff);
+  assert.deepEqual(squad.map(group => [group.positionCode, group.required, group.players.map(player => player.id)]), [
+    ['GKP', 2, [213, 212]], ['DEF', 5, [222, 221, 220, 123, 122]],
+    ['MID', 5, [133, 132, 131, 130, 233]], ['FWD', 3, [143, 142, 141]]
+  ]);
+  const selected = squad.flatMap(group => group.players);
+  assert.equal(new Set(selected.map(player => player.id)).size, 15);
+  const fixtureRows = matches.flatMap(match => [...match.attacking, ...match.defensive]);
+  for (const player of selected) {
+    const rows = fixtureRows.filter(row => row.id === player.id);
+    assert.equal(rows.length, player.teamId === 1 ? 2 : 1);
+    assert.equal(player.performanceScore, rows.reduce((sum, row) => sum + row.performanceScore, 0));
+  }
+});
+
 test('uses the fixture cutoff and excludes matches from an unchecked Gameweek', async () => {
   const dashboard = seasonDashboard();
   dashboard.events[1].data_checked = false;
@@ -91,7 +115,7 @@ test('uses the fixture cutoff and excludes matches from an unchecked Gameweek', 
 test('leaves season rates unavailable before the first completed match', async () => {
   const fixture = { ...upcoming, event: 1 };
   const dashboard = { ...seasonDashboard(), fixtures: [fixture], events: [{ id: 1 }] };
-  const { matches: [match] } = await createSeasonBinaryAnalysis({ getLive: () => assert.fail('No completed Gameweeks') })(
+  const { matches: [match], squad } = await createSeasonBinaryAnalysis({ getLive: () => assert.fail('No completed Gameweeks') })(
     dashboard, [fixture], 1, null, cutoff);
   for (const team of [match.home, match.away]) {
     assert.equal(team.completedMatches, 0);
@@ -99,6 +123,8 @@ test('leaves season rates unavailable before the first completed match', async (
       [null, null, null, null]);
   }
   assert.ok([...match.attacking, ...match.defensive].every(player => player.priority === null));
+  assert.deepEqual(squad.map(group => group.required - group.players.length), [0, 3, 3, 1]);
+  assert.ok(squad.flatMap(group => group.players).every(player => player.performanceScore === null));
 });
 
 test('serves the season-based strategy through analysis and post-deadline preview', async () => {
@@ -125,4 +151,5 @@ test('serves the season-based strategy through analysis and post-deadline previe
   const preview = await previewResponse.json();
   assert.deepEqual(preview.preview, { fixtureCount: 1 });
   assert.deepEqual(preview.matches, report.matches);
+  assert.deepEqual(preview.squad, report.squad);
 });

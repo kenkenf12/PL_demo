@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHeadToHeadAnalysis } from '../lib/head-to-head.mjs';
-import { roundRuleBasedPoints } from '../lib/fpl-rule-scoring.mjs';
 import { createApiHandler } from '../lib/http.mjs';
-import { createFixturePlayerScorer, predictMatchWinners } from '../lib/match-winner-strategy.mjs';
+import { createFixturePlayerScorer } from '../lib/fixture-player-scoring.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 
 const gameweek = 5;
@@ -122,7 +121,7 @@ test('uses the most recent meeting among tied outcomes', async () => {
   assert.ok(report.players.every(player => player.teamId === 2));
 });
 
-test('ranks the best 15 on the same scoring criteria as Match & Player', async () => {
+test('ranks the best 15 using the shared fixture scoring criteria', async () => {
   const extraPlayers = Array.from({ length: 17 }, (_, index) => ({ ...dashboard.players[0], id: 1000 + index,
     web_name: `Extra player ${index}`, expected_goals: String(index + 3) }));
   const data = { ...dashboard, players: [...dashboard.players, ...extraPlayers], fixtures: dashboard.fixtures.map(fixture =>
@@ -130,9 +129,10 @@ test('ranks the best 15 on the same scoring criteria as Match & Player', async (
   const selected = [fixtures[0]];
   const h2h = await analysis({ fpl: { getLive: async id => playerEvidence(id, data) } })(data, selected, gameweek, cutoff);
   assert.deepEqual(h2h.players.map(player => player.id), extraPlayers.slice(-15).reverse().map(player => player.id));
-  const old = predictMatchWinners(data, selected, gameweek, [4, 3, 2].map(event => playerEvidence(event, data)));
-  assert.equal(old.matches[0].picks[0].id, h2h.players[0].id);
-  assert.equal(old.matches[0].picks[0].predicted, roundRuleBasedPoints(h2h.players[0].performanceScore));
+  const scorePlayer = createFixturePlayerScorer(data, selected, gameweek, [4, 3, 2].map(event => playerEvidence(event, data)));
+  for (const pick of h2h.players) {
+    assert.equal(pick.performanceScore, scorePlayer(data.players.find(player => player.id === pick.id), selected[0].id));
+  }
 });
 
 test('sums eligible fixtures only and keeps each player unique in a Double Gameweek', async () => {
@@ -151,27 +151,15 @@ test('sums eligible fixtures only and keeps each player unique in a Double Gamew
 
 test('offers H2H through the prediction API as an independent analysis', async () => {
   const fpl = { getDashboard: async () => dashboard, getLive: async () => { throw new Error('No player scoring'); } };
-  let saved = [];
-  const requests = [];
-  const history = { read: async () => saved, update: async transform => { saved = transform(saved); } };
-  const api = createApiHandler(fpl, predictionService(fpl, { history, headToHead: analysis({ requests, fpl }), now: () => cutoff }));
+  const history = { read: async () => [], update: async () => assert.fail('H2H wrote prediction history') };
+  const api = createApiHandler(fpl, predictionService(fpl, { history, headToHead: analysis({ fpl }), now: () => cutoff }));
   const url = path => new URL(`http://localhost/api/${path}`);
   const refresh = await api('POST', url(`prediction-data?gameweek=${gameweek}`));
   const { token } = await refresh.json();
-  const post = strategy => api('POST', url(`predictions?gameweek=${gameweek}&token=${token}&strategy=${strategy}`));
-  const original = await (await post('match-winners')).json();
-  assert.equal(original.strategy, 'match-winners');
-  assert.equal(requests.length, 0);
-  assert.ok(original.matches.every(match => match.winner === null && match.picks.length === 0));
-
-  const response = await post('head-to-head');
+  const response = await api('POST', url(`predictions?gameweek=${gameweek}&token=${token}&strategy=head-to-head`));
   assert.equal(response.status, 201);
   const report = await response.json();
   assert.equal(report.strategy, 'head-to-head');
   assert.equal(report.matches[2].outcome, 'draw');
   assert.ok(report.players.some(player => player.teamId === 5) && report.players.some(player => player.teamId === 6));
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].id, original.id);
-  const repeated = await (await post('match-winners')).json();
-  assert.deepEqual(repeated.matches, original.matches);
 });
