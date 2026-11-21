@@ -169,16 +169,25 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   const predictionView = record => record.strategy === 'match-winners' ? matchWinnerView(record) : squadView(record);
 
-  function specialRulesView({ gameweek, weeks, players, sources }) {
-    return `<div class="prediction-result-head"><div><h3>Gameweek ${gameweek} · Special Rules</h3>
-      <p>Players who started in each of the three prior completed Gameweeks and had a goal or assist followed by two Gameweeks with neither.</p></div></div>
+  function specialRuleTable({ weeks, players }, label, showStarts) {
+    if (!players.length) return `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`;
+    return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
+      <thead><tr><th scope="col">Player</th><th scope="col">Club</th>
+      ${weeks.map(week => `<th scope="col">GW${week}<span class="player-meta">${showStarts ? 'Starts / ' : ''}Goals / Assists</span></th>`).join('')}</tr></thead>
+      <tbody>${players.map(player => `<tr><td><strong>${html(player.name)}</strong></td><td>${html(player.team)}</td>
+      ${player.gameweeks.map(({ starts, goals, assists }) => `<td>${showStarts ? `${starts} / ` : ''}${goals ?? '—'} / ${assists ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>`;
+  }
+
+  function specialRulesView({ gameweek, weeks, players, sources, rule2 }) {
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Special Rules</h3></div>
+      <h4>Special Rule</h4>
+      <p class="prediction-caption">Players started in all three Gameweeks and had a goal or assist followed by two Gameweeks with neither.</p>
       ${weeks.length < 3 ? '<p>Three completed Gameweeks are needed to check this rule.</p>'
-        : players.length ? `<div class="scroll-table" tabindex="0" aria-label="Players matching the special rule"><table>
-          <thead><tr><th scope="col">Player</th><th scope="col">Club</th>
-          ${weeks.map(week => `<th scope="col">GW${week}<span class="player-meta">Starts / Goals / Assists</span></th>`).join('')}</tr></thead>
-          <tbody>${players.map(player => `<tr><td><strong>${html(player.name)}</strong></td><td>${html(player.team)}</td>
-          ${player.gameweeks.map(({ starts, goals, assists }) => `<td>${starts} / ${goals ?? '—'} / ${assists ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody>
-          </table></div>` : `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`}
+        : specialRuleTable({ weeks, players }, 'Players matching Special Rule', true)}
+      <h4>Special Rule2</h4>
+      <p class="prediction-caption">Players had a goal or assist in each of two consecutive Gameweeks, followed by two Gameweeks with neither.</p>
+      ${rule2.error ? `<p>${html(rule2.error)}</p>` : specialRuleTable(rule2, 'Players matching Special Rule2', false)}
       ${sources.length ? `<details class="provenance"><summary>Gameweek scoring sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
 

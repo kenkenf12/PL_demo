@@ -37,7 +37,10 @@ For each predicted winning team, the strategy takes the highest projected player
 
 **News & Expert Opinion Analysis** searches the last seven days of coverage in The Guardian, BBC Sport, Sky Sports, The Independent and Fantasy Football Scout feeds. It matches current FPL players to positive coverage, counts at most one mention per publisher per player, and deduplicates repeated bylines and copied passages. Rankings use the independent mention count followed by the strength of the positive language. Each recommendation links to the dated article. This list is separate from squad points and prediction history.
 
-**Special Rules** lists players who started at least one match in each of the three latest completed Gameweeks before the selected Gameweek, regardless of minutes played. They must have scored or assisted in the oldest of the three and recorded zero goals and zero assists in both more recent Gameweeks. Goals and assists are counted across all matches in each Gameweek. Select **Special Rules** and click **Analyse FPL Players** after refreshing the selected Gameweek. The report is also available after the prediction deadline.
+Select **Special Rules** and click **Analyse FPL Players** after refreshing the selected Gameweek. The report uses completed Gameweeks before the selected Gameweek and counts goals and assists across all matches in each Gameweek. It is also available after the prediction deadline.
+
+- **Special Rule** lists players who started at least one match in each of the latest three completed Gameweeks, regardless of minutes played. They must have scored or assisted in the oldest of the three and recorded zero goals and zero assists in both more recent Gameweeks.
+- **Special Rule2** lists all players with a goal or assist in each of the first two of four consecutive completed Gameweeks and zero goals and zero assists in each of the last two. Returns from substitute appearances also count.
 
 ## Browse players and your public squad
 
