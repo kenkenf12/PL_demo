@@ -213,6 +213,39 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
   }
 
+  function teamBinaryView({ gameweek, matches, completedMatches, sources }) {
+    const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
+    const goal = predicted => predicted ? 'Goal' : 'No Goal';
+    const cleanSheet = predicted => predicted ? 'Clean Sheet' : 'No Clean Sheet';
+    const predictionCell = (label, likelihood, description) => `<td><strong>${label}</strong>
+      <span class="player-meta">${percent(likelihood)} ${description}</span></td>`;
+    const teamCells = team => `<th scope="row">${html(team.name)}</th>
+      ${predictionCell(goal(team.goal), team.goalProbability, 'to score')}
+      ${predictionCell(cleanSheet(team.cleanSheet), team.cleanSheetProbability, 'clean sheet chance')}`;
+    const playerTable = (label, players, predictionLabel, formatPrediction) => `<h4>${label}</h4>
+      ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
+        <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
+          <th scope="col">${predictionLabel}</th><th scope="col">Projected FPL points</th></tr></thead>
+        <tbody>${players.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td>
+          <td>${html(player.position)}</td><td>${formatPrediction(player.priority)}</td>
+          <td>${forecast(player.performanceScore)}</td></tr>`).join('')}</tbody></table></div>` : '<p>No players listed for these positions.</p>'}`;
+
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Team Goals &amp; Clean Sheets</h3></div>
+      ${matches.length ? `<p class="prediction-caption">${completedMatches ? `Based on ${completedMatches} completed league matches.`
+        : 'Team scoring chances start at 50% before league results are available.'} Goal is predicted at 50% or higher.</p>
+        <div class="scroll-table" tabindex="0" aria-label="Team goal and clean-sheet predictions"><table>
+        <thead><tr><th scope="col">Fixture</th><th scope="col">Team</th><th scope="col">Goal prediction</th>
+          <th scope="col">Clean sheet prediction</th></tr></thead>
+        ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${matchup(match)}</th>${teamCells(match.home)}</tr>
+          <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
+        <p class="prediction-caption">Open a fixture to see both player groups. Players with scores appear first, with priority given to the relevant team prediction.</p>
+        ${matches.map(match => `<details class="provenance"><summary>${matchup(match)} · Player analysis</summary>
+          ${playerTable('Attacking players', match.attacking, 'Team goal prediction', goal)}
+          ${playerTable('Defensive players', match.defensive, 'Team clean sheet prediction', cleanSheet)}
+        </details>`).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
+  }
+
   function specialRuleTable({ weeks, players }, label, showStarts) {
     if (!players.length) return `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`;
     return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
@@ -343,6 +376,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
+  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView, 'team-binary': teamBinaryView };
   analyse.addEventListener('click', async () => {
     busy = true;
     hideResults();
@@ -357,8 +391,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         showAnalysis('');
         return;
       }
-      result.innerHTML = record.strategy === 'head-to-head' ? headToHeadView(record)
-        : record.strategy === 'special-rules' ? specialRulesView(record) : predictionView(record);
+      result.innerHTML = (analysisViews[record.strategy] ?? predictionView)(record);
       result.hidden = false;
       showAnalysis(record.id ? (record.strategy === 'match-winners' ? `${strategyLabel(record.strategy)} prediction saved.`
         : record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
