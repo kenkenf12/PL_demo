@@ -39,8 +39,9 @@ function sourceList(sources) {
       ? `FPL last modified ${sourceTime.format(new Date(source.lastModified))}`
       : 'FPL did not provide a last-modified time';
     const upstreamDate = source.upstreamDate ? ` · HTTP date ${sourceTime.format(new Date(source.upstreamDate))}` : '';
+    const origin = source.origin ? `${html(source.origin)}${source.gameweek == null ? '' : ` · Gameweek ${source.gameweek}`}<br>` : '';
     return `<div><dt><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.label)}</a></dt>
-      <dd>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}<br>${update}${upstreamDate}</dd></div>`;
+      <dd>${origin}Retrieved ${sourceTime.format(new Date(source.retrievedAt))}<br>${update}${upstreamDate}</dd></div>`;
   }).join('')}</dl>`;
 }
 
@@ -275,8 +276,8 @@ function showDashboard(data) {
   $('#fixture-week').value = state.week ?? state.model.weeks[0]?.id ?? state.data.events.find(week => week.is_current)?.id ?? state.data.events.at(-1).id;
   renderFixtures();
   $('#dashboard').hidden = false;
-  notice.hidden = !state.data.stale;
-  if (state.data.stale) notice.textContent = 'Browsing the last saved official snapshot. Use Refresh FPL Data to update it.';
+  notice.hidden = !state.data.refreshError;
+  if (state.data.refreshError) notice.textContent = 'Using the last validated FPL snapshot. Use Refresh FPL Data to try the live feeds again.';
 }
 
 async function playerDetail(id) {
@@ -357,7 +358,7 @@ $('#entry-form').addEventListener('submit', event => {
 });
 $('#dialog').addEventListener('close', () => { state.detail += 1; });
 $('#source-button').addEventListener('click', () => openDialog('Official FPL data', state.data ? `
-  <p>${state.data.stale ? 'Saved season snapshot.' : 'Season snapshot from the official Fantasy Premier League API.'}</p>
+  <p>${html(state.data.dataStatus.source)}</p>
   ${sourceList(state.data.sources)}<p>Player, Gameweek scoring, and squad views show the timestamps of their own requests.</p>`
   : '<p>Waiting for a verified response from official Fantasy Premier League.</p>'));
 $('#method-button').addEventListener('click', () => openDialog('How projections work', `
@@ -374,4 +375,4 @@ const predictions = setupPredictions({ request: get, html, sourceList, openDialo
 });
 get('/api/dashboard').then(data => {
   if (predictions.useSnapshot(data)) showDashboard(data);
-}).catch(() => {});
+}).catch(error => predictions.showSnapshotWarning(error.message));

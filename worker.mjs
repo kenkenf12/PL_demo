@@ -59,7 +59,23 @@ export class FplSession extends DurableObject {
       }
     };
 
-    const fpl = createFplClient(state('snapshot'));
+    const snapshot = {
+      read: () => records.read('snapshot'),
+      readHistory(year) {
+        return sql.exec('SELECT payload FROM session_state WHERE key LIKE ?', `snapshot:${year}:%`).toArray().flatMap(({ payload }) => {
+          try { return [JSON.parse(payload)]; } catch { return []; }
+        });
+      },
+      write(value) {
+        storage.transactionSync(() => {
+          records.write(`snapshot:${value.dashboard.seasonYear}:${value.gameweek ?? 0}`, value);
+          records.write('snapshot', value);
+        });
+      },
+      readRecord: key => records.read(`fpl:${key}`),
+      writeRecord: (key, value) => records.write(`fpl:${key}`, value)
+    };
+    const fpl = createFplClient(snapshot);
     this.api = createApiHandler(fpl, predictionService(fpl, { history, refreshState: state('refresh') }));
   }
 

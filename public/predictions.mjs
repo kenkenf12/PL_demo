@@ -13,11 +13,13 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const refresh = $('#refresh');
   const analyse = $('#analyse');
   const refreshStatus = $('#refresh-status');
+  const dataStatus = $('#data-status');
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
   const newsResult = $('#news-result');
   const history = $('#history-content');
   let ready;
+  let hasSnapshot = false;
   let busy = false;
   let records = [];
   let historyRequest = 0;
@@ -56,13 +58,22 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   function useSnapshot(data) {
     if (ready || busy) return false;
     showSnapshot(data);
+    if (data.refreshError) refreshStatus.textContent = `${data.refreshError} Using the last validated league dataset.`;
     return true;
   }
 
+  function showSnapshotWarning(message) {
+    if (ready || busy) return;
+    refreshStatus.textContent = message;
+    if (!hasSnapshot) dataStatus.textContent = 'Data source unavailable · Gameweek unavailable · Dataset incomplete';
+  }
+
   function showSnapshot(data) {
+    hasSnapshot = true;
     gameweeks(data.events);
-    const latest = Math.max(...data.sources.map(source => Date.parse(source.retrievedAt)));
-    $('#last-refresh').textContent = `Last successful refresh ${sourceTime.format(latest)}`;
+    const { source, lastSuccessfulFetch, gameweek, complete } = data.dataStatus;
+    dataStatus.textContent = `${source} · ${gameweek == null ? 'Gameweek unavailable' : `Covers Gameweek ${gameweek}`} · League dataset ${complete ? 'complete' : 'incomplete'}`;
+    $('#last-refresh').textContent = `Last successful fetch ${sourceTime.format(new Date(lastSuccessfulFetch))}`;
     updateControls();
   }
 
@@ -210,7 +221,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         : '<p>No players are eligible for this Gameweek’s H2H ranking.</p>'}
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary><ul class="news-evidence">
         ${sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.label)}</a>
-        <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
+        <span>${source.origin ? `${html(source.origin)} · ` : ''}Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
   }
 
   function teamBinaryView({ gameweek, matches, completedMatches, sources }) {
@@ -367,10 +378,15 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       showSnapshot(ready.dashboard);
       onRefresh(ready.dashboard);
       const closed = ready.week.finished || Date.parse(ready.week.deadline_time) <= Date.now();
-      refreshStatus.textContent = `Gameweek ${ready.week.id} data refreshed.${closed ? ' The prediction deadline has passed.' : ''}${ready.historyError ? ` ${ready.historyError}` : ''}`;
+      const loaded = ready.dashboard.refreshError ? `Using cached historical data for Gameweek ${ready.week.id}. ${ready.dashboard.refreshError}`
+        : `Gameweek ${ready.week.id} data refreshed.`;
+      refreshStatus.textContent = [loaded, closed ? 'The prediction deadline has passed.' : '',
+        ready.previousError ?? (ready.previousSource === 'Cached Historical Data' ? `Using cached Gameweek ${ready.previousWeek} scoring.` : ''),
+        ready.historyError].filter(Boolean).join(' ');
       await loadHistory();
     } catch (error) {
       refreshStatus.textContent = `Refresh failed. ${error.message}${ready ? ' You can still use the previous successful refresh for this Gameweek.' : ''}`;
+      if (!hasSnapshot) dataStatus.textContent = 'Data source unavailable · Gameweek unavailable · Dataset incomplete';
     } finally {
       busy = false;
       updateControls();
@@ -411,5 +427,5 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   gameweeks(Array.from({ length: 38 }, (_, index) => ({ id: index + 1, name: `Gameweek ${index + 1}` })));
   loadHistory();
-  return { useSnapshot };
+  return { useSnapshot, showSnapshotWarning };
 }

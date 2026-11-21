@@ -348,9 +348,11 @@ test('replays an official completed Gameweek to verify accuracy and independent 
   assert.equal(refreshCalls, 1);
   assert.ok((await service.history()).every(record => record.accuracy === null));
 
-  snapshot = { ...season, stale: true, refreshError: 'Connection failed' };
-  await assert.rejects(service.refresh(week.id), /Connection failed/);
-  assertSquad(await service.analyse(week.id, 'ranking', input.token));
+  snapshot = { ...snapshot, stale: true, refreshError: 'Connection failed' };
+  const recovered = await service.refresh(week.id);
+  assert.equal(recovered.dashboard.refreshError, 'Connection failed');
+  assert.equal(recovered.week.finished, false);
+  assertSquad(await service.analyse(week.id, 'ranking', recovered.token));
 
   snapshot = season;
   clock = Date.parse(week.deadline_time) + 10 * 86_400_000;
