@@ -4,6 +4,7 @@ import { createApiHandler } from '../lib/http.mjs';
 import { createFixturePlayerScorer } from '../lib/fixture-player-scoring.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 import { createSeasonBinaryAnalysis } from '../lib/team-binary.mjs';
+import { createSeasonIndexAnalysis } from '../lib/season-index.mjs';
 
 const gameweek = 7;
 const kickoff = '2026-10-23T15:00:00Z';
@@ -152,4 +153,74 @@ test('serves the season-based strategy through analysis and post-deadline previe
   assert.deepEqual(preview.preview, { fixtureCount: 1 });
   assert.deepEqual(preview.matches, report.matches);
   assert.deepEqual(preview.squad, report.squad);
+});
+
+test('season index applies fixture eligibility to the shared player rankings and squad in analysis and preview', async () => {
+  const dashboard = seasonDashboard();
+  const awayWin = { ...upcoming, id: 100, team_h: 2, team_a: 1 };
+  const draw = { ...upcoming, id: 101, team_h: 2, team_a: 4 };
+  dashboard.fixtures.push(awayWin, draw, { ...upcoming, id: 102, started: true });
+  dashboard.players = players.flatMap(player => [player, { ...player, id: player.id + 100 }]);
+  const client = { getDashboard: async () => dashboard, getLive: async event => playerEvidence(event, dashboard.players) };
+  const history = { read: async () => [], update: async () => assert.fail('The season index wrote prediction history') };
+  let time = cutoff;
+  const api = createApiHandler(client, predictionService(client, { history, now: () => time }));
+  const url = (path, parameters) => new URL(`http://localhost/api/${path}?${new URLSearchParams(parameters)}`);
+  const refresh = await api('POST', url('prediction-data', { gameweek }));
+  const { token } = await refresh.json();
+  const query = { token, gameweek, strategy: 'season-index' };
+  const response = await api('POST', url('predictions', query));
+  assert.equal(response.status, 201);
+  const report = await response.json();
+  assert.equal(report.strategy, 'season-index');
+  assert.equal(report.latestCompletedGameweek, 6);
+  assert.deepEqual(report.teams.map(({ completedMatches, goalProbability, cleanSheetProbability, teamIndex }) =>
+    [completedMatches, goalProbability, cleanSheetProbability, teamIndex]), [
+    [6, 5 / 6, 3 / 6, 800 / 6], [5, 2 / 5, 3 / 5, 100], [4, 1 / 4, 1 / 4, 50], [5, 3 / 5, 2 / 5, 100]
+  ]);
+  assert.deepEqual(report.matches.map(match => [match.id, match.outcome, match.eligibleTeamIds]), [
+    [99, 'home', [1]], [100, 'away', [1]], [101, 'draw', [2, 4]]
+  ]);
+
+  const original = await (await api('POST', url('predictions', { ...query, strategy: 'season-binary' }))).json();
+  for (const [index, match] of report.matches.entries()) {
+    for (const group of ['attacking', 'defensive']) {
+      assert.deepEqual(match[group], original.matches[index][group].filter(player => match.eligibleTeamIds.includes(player.teamId)));
+    }
+  }
+  assert.deepEqual(report.squad.map(group => [group.positionCode, group.required, group.players.length]), [
+    ['GKP', 2, 2], ['DEF', 5, 5], ['MID', 5, 5], ['FWD', 3, 3]
+  ]);
+  const selected = report.squad.flatMap(group => group.players);
+  assert.equal(new Set(selected.map(player => player.id)).size, 15);
+  for (const player of selected) {
+    const rows = report.matches.flatMap(match => [...match.attacking, ...match.defensive]).filter(row => row.id === player.id);
+    assert.equal(rows.length, player.teamId === 1 ? 2 : 1);
+    assert.ok(rows.every(row => Number.isFinite(row.performanceScore)));
+    assert.equal(player.performanceScore, rows.reduce((sum, row) => sum + row.performanceScore, 0));
+  }
+
+  time = Date.parse('2026-10-23T14:00:00Z');
+  const previewResponse = await api('POST', url('prediction-preview', query));
+  assert.equal(previewResponse.status, 200);
+  assert.deepEqual(await previewResponse.json(), { ...report, preview: { fixtureCount: 3 } });
+});
+
+test('season index treats equal fractions as a draw and leaves matches with missing data unpredicted', async () => {
+  const events = Array.from({ length: 10 }, (_, index) => ({ id: index + 1, finished: true, data_checked: true }));
+  const results = [[1, [[1, 1], [0, 0], [0, 0], [0, 1], [0, 1]]],
+    [2, [[1, 1], [1, 1], [1, 1], [0, 0], [0, 0], [0, 0], [0, 1], [0, 1], [0, 1], [0, 1]]]]
+    .flatMap(([team, scores]) => scores.map(([team_h_score, team_a_score], index) => ({
+      id: 10 * team + index, event: index + 1, team_h: team, team_a: 3, team_h_score, team_a_score, finished: true,
+      kickoff_time: `2026-10-${11 + index}T15:00:00Z`
+    })));
+  const fixtures = [{ ...upcoming, event: 11 }, { ...upcoming, id: 100, event: 11, team_a: 4 }];
+  const dashboard = { ...seasonDashboard(), events, fixtures: [...results, ...fixtures] };
+  const { teams: [home, away, , noData], matches } = await createSeasonIndexAnalysis(fpl)(dashboard, fixtures, 11, null, cutoff);
+  assert.notEqual(home.goalProbability + home.cleanSheetProbability, away.goalProbability + away.cleanSheetProbability);
+  assert.deepEqual([home.teamIndex, away.teamIndex], [60, 60]);
+  assert.equal(matches[0].outcome, 'draw');
+  assert.deepEqual(matches[0].eligibleTeamIds, [1, 2]);
+  assert.deepEqual([noData.goalProbability, noData.cleanSheetProbability, noData.teamIndex], [null, null, null]);
+  assert.deepEqual([matches[1].outcome, matches[1].eligibleTeamIds, matches[1].attacking, matches[1].defensive], [null, [], [], []]);
 });

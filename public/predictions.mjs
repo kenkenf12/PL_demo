@@ -256,31 +256,43 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       </table></div>`;
   }
 
-  function seasonBinaryView({ gameweek, matches, squad, sources }) {
-    const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
-    const seasonPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 3 }).format;
-    const seasonRate = value => value == null ? '—' : seasonPercent(value);
-    const ratePair = (positive, negative, positiveMatches, negativeMatches) => `<td>
-      <strong>${seasonRate(positive)} / ${seasonRate(negative)}</strong>
-      <span class="player-meta">${positiveMatches} / ${negativeMatches} matches</span></td>`;
-    const teamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
-      ${ratePair(team.goalProbability, team.noGoalProbability, team.goalMatches, team.noGoalMatches)}
-      ${ratePair(team.cleanSheetProbability, team.noCleanSheetProbability, team.cleanSheetMatches, team.noCleanSheetMatches)}`;
-    const playerTable = (label, players, rateLabel) => `<h4>${label}</h4>
+  const seasonMatchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
+  const seasonPercent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 3 }).format;
+  const seasonRate = value => value == null ? '—' : seasonPercent(value);
+  const seasonIndexNumber = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 3 }).format;
+  const seasonIndexValue = value => value == null ? '—' : seasonIndexNumber(value);
+
+  function seasonPlayerTable(label, players, rateLabel) {
+    return `<h4>${label}</h4>
       ${players.length ? `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
         <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
           <th scope="col">${rateLabel}</th><th scope="col">Projected FPL points</th></tr></thead>
         <tbody>${players.map(player => `<tr><td>${html(player.name)}</td><td>${html(player.team)}</td>
           <td>${html(player.position)}</td><td>${seasonRate(player.priority)}</td>
           <td>${forecast(player.performanceScore)}</td></tr>`).join('')}</tbody></table></div>` : '<p>No players listed for these positions.</p>'}`;
+  }
 
+  function seasonPlayerAnalysis(match) {
+    return `<details class="provenance"><summary>${seasonMatchup(match)} · Player analysis</summary>
+          ${seasonPlayerTable('Attacking players', match.attacking, 'Club goal rate')}
+          ${seasonPlayerTable('Defensive players', match.defensive, 'Club clean-sheet rate')}
+        </details>`;
+  }
+
+  function seasonBinaryView({ gameweek, matches, squad, sources }) {
+    const ratePair = (positive, negative, positiveMatches, negativeMatches) => `<td>
+      <strong>${seasonRate(positive)} / ${seasonRate(negative)}</strong>
+      <span class="player-meta">${positiveMatches} / ${negativeMatches} matches</span></td>`;
+    const teamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
+      ${ratePair(team.goalProbability, team.noGoalProbability, team.goalMatches, team.noGoalMatches)}
+      ${ratePair(team.cleanSheetProbability, team.noCleanSheetProbability, team.cleanSheetMatches, team.noCleanSheetMatches)}`;
     const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
     const outcomeRow = match => {
       const { percentages, mostLikely, predictedOutcome, uncertain } = match.outcomeAnalysis;
       const cells = Object.keys(outcomeLabels).map(key => `<td>${percentages ? percent(percentages[key] / 100) : '—'}</td>`).join('');
       const result = predictedOutcome ? outcomeLabels[predictedOutcome]
         : `${mostLikely.map(key => outcomeLabels[key]).join(' / ')} (tied)`;
-      return `<tr><th scope="row">${matchup(match)}</th>${cells}<td>${percentages
+      return `<tr><th scope="row">${seasonMatchup(match)}</th>${cells}<td>${percentages
         ? `<strong>${result}</strong>${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
         : 'Insufficient season data'}</td></tr>`;
     };
@@ -289,7 +301,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         <div class="scroll-table" tabindex="0" aria-label="Team goal and clean-sheet predictions"><table>
         <thead><tr><th scope="col">Fixture</th><th scope="col">Team</th>
           <th scope="col">Season matches</th><th scope="col">Goal / No Goal</th><th scope="col">Clean Sheet / No Clean Sheet</th></tr></thead>
-        ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${matchup(match)}</th>${teamCells(match.home)}</tr>
+        ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${teamCells(match.home)}</tr>
           <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
         <h4>Match Outcome Analysis</h4>
           <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain. A tie for first between Home Win and Away Win is shown as Draw.</p>
@@ -298,10 +310,34 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
             <th scope="col">Away Win</th><th scope="col">Predicted outcome</th></tr></thead>
           <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>
         <p class="prediction-caption">Open a fixture to see both player groups. Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.</p>
-        ${matches.map(match => `<details class="provenance"><summary>${matchup(match)} · Player analysis</summary>
-          ${playerTable('Attacking players', match.attacking, 'Club goal rate')}
-          ${playerTable('Defensive players', match.defensive, 'Club clean-sheet rate')}
-        </details>`).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+        ${matches.map(seasonPlayerAnalysis).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${seasonSquadView(squad)}
+      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
+  }
+
+  function seasonIndexView({ gameweek, teams, matches, latestCompletedGameweek, squad, sources }) {
+    const scope = latestCompletedGameweek
+      ? `Rates use completed Premier League matches from Gameweek 1${latestCompletedGameweek > 1 ? ` through Gameweek ${latestCompletedGameweek}` : ''}.`
+      : 'No completed Gameweeks are available yet.';
+    const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season Index Match Predictor</h3></div>
+      <h4>Team Index</h4>
+      <p class="prediction-caption">${scope} The index adds the goal and clean-sheet percentages.</p>
+      <div class="scroll-table" tabindex="0" aria-label="Season team indices"><table>
+        <thead><tr><th scope="col">Club</th><th scope="col">Matches</th><th scope="col">Goal Probability (%)</th>
+          <th scope="col">Clean Sheet Probability (%)</th><th scope="col">Team Index</th></tr></thead>
+        <tbody>${teams.map(team => `<tr><th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
+          <td>${seasonRate(team.goalProbability)}</td><td>${seasonRate(team.cleanSheetProbability)}</td>
+          <td><strong>${seasonIndexValue(team.teamIndex)}</strong></td></tr>`).join('')}</tbody></table></div>
+      <h4>Match Outcome Analysis</h4>
+      ${matches.length ? `<div class="scroll-table" tabindex="0" aria-label="Season Index match predictions"><table>
+        <thead><tr><th scope="col">Fixture</th><th scope="col">Home Index</th><th scope="col">Away Index</th>
+          <th scope="col">Predicted outcome</th></tr></thead>
+        <tbody>${matches.map(match => `<tr><th scope="row">${seasonMatchup(match)}</th>
+          <td>${seasonIndexValue(match.home.teamIndex)}</td><td>${seasonIndexValue(match.away.teamIndex)}</td>
+          <td>${match.outcome ? `<strong>${outcomeLabels[match.outcome]}</strong>` : 'Insufficient season data'}</td></tr>`).join('')}
+        </tbody></table></div>
+        ${matches.filter(match => match.outcome).map(seasonPlayerAnalysis).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
       ${seasonSquadView(squad)}
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
@@ -444,7 +480,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView, 'season-binary': seasonBinaryView };
+  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView,
+    'season-binary': seasonBinaryView, 'season-index': seasonIndexView };
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();
