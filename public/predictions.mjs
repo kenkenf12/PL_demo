@@ -179,11 +179,11 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       </table></div>`;
   }
 
-  function specialRulesView({ gameweek, weeks, players, sources, rule2, rule3, rule4 }) {
+  function specialRulesView({ gameweek, weeks, players, sources, error, rule2, rule3, rule4, rule5 }) {
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Special Rules</h3></div>
       <h4>Special Rule</h4>
       <p class="prediction-caption">Players started in all three Gameweeks and had a goal or assist followed by two Gameweeks with neither.</p>
-      ${weeks.length < 3 ? '<p>Three completed Gameweeks are needed to check this rule.</p>'
+      ${error ? `<p>${html(error)}</p>` : weeks.length < 3 ? '<p>Three completed Gameweeks are needed to check this rule.</p>'
         : specialRuleTable({ weeks, players }, 'Players matching Special Rule', true)}
       <h4>Special Rule2</h4>
       <p class="prediction-caption">Players had a goal or assist in each of two consecutive Gameweeks, followed by two Gameweeks with neither.</p>
@@ -194,6 +194,9 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       <h4>Special Rule4</h4>
       <p class="prediction-caption">Players started and recorded a goal or assist in each of the last three consecutive completed Gameweeks.</p>
       ${rule4.error ? `<p>${html(rule4.error)}</p>` : specialRuleTable(rule4, 'Players matching Special Rule4', true)}
+      <h4>Special Rule5</h4>
+      <p class="prediction-caption">Players started and recorded a goal or assist in each of the last two consecutive completed Gameweeks.</p>
+      ${rule5.error ? `<p>${html(rule5.error)}</p>` : specialRuleTable(rule5, 'Players matching Special Rule5', true)}
       ${sources.length ? `<details class="provenance"><summary>Gameweek scoring sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
 

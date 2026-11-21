@@ -9,6 +9,7 @@ const players = Array.from({ length: 18 }, (_, index) => ({
   id: index + 1, team: 1, web_name: `Player ${String(index + 1).padStart(2, '0')}`
 }));
 const stats = {
+  1: { 3: { goals_scored: 1 } },
   2: { 2: { goals_scored: 1 }, 3: { assists: 1 }, 4: { goals_scored: 1 }, 6: { assists: 1 }, 7: { assists: 1 },
     8: { goals_scored: 2 }, 9: { goals_scored: 1 }, 10: { goals_scored: 1, starts: 0 }, 11: { goals_scored: 1 } },
   3: { 1: { goals_scored: 1 }, 2: { assists: 2 }, 4: { goals_scored: 1 }, 6: { goals_scored: 1 },
@@ -111,16 +112,42 @@ test('lists players who started and scored or assisted in each of the latest thr
   assert.deepEqual(liveCalls, [5, 2, 3, 4]);
 });
 
-test('reports insufficient completed history without fetching extra Gameweeks', async () => {
+test('lists all players who started and recorded a return in both recent Gameweeks', async () => {
+  const { service, liveCalls } = setup();
+  const { token } = await service.refresh(gameweek);
+  const { rule5 } = await service.analyse(gameweek, 'special-rules', token);
+  assert.equal(rule5.error, null);
+  assert.deepEqual(rule5.weeks, [4, 5]);
+  assert.deepEqual(rule5.players.map(player => player.id), [5, 13, 15, 18]);
+  assert.deepEqual(rule5.players[1], { id: 13, name: 'Player 13', team: 'Club 1', gameweeks: [
+    { starts: 1, goals: 1, assists: 0 }, { starts: 1, goals: 0, assists: 1 }
+  ] });
+  assert.deepEqual(liveCalls, [5, 2, 3, 4]);
+});
+
+test('evaluates Special Rule5 after the first two completed Gameweeks', async () => {
   const { service, liveCalls } = setup();
   const { token } = await service.refresh(3);
-  assert.deepEqual(await service.analyse(3, 'special-rules', token), {
-    strategy: 'special-rules', gameweek: 3, weeks: [1, 2], players: [], sources: [],
-    rule2: { weeks: [1, 2], players: [], error: 'Four consecutive completed Gameweeks are needed to check this rule.' },
-    rule3: { weeks: [1, 2], players: [], error: 'Three consecutive completed Gameweeks are needed to check this rule.' },
-    rule4: { weeks: [1, 2], players: [], error: 'Three consecutive completed Gameweeks are needed to check this rule.' }
+  const report = await service.analyse(3, 'special-rules', token);
+  assert.deepEqual(report.players, []);
+  assert.ok([report.rule2, report.rule3, report.rule4].every(rule => rule.error));
+  assert.equal(report.sources.length, 2);
+  assert.equal(report.rule5.error, null);
+  assert.deepEqual(report.rule5.weeks, [1, 2]);
+  assert.deepEqual(report.rule5.players.map(player => player.id), [3]);
+  assert.deepEqual(liveCalls, [2, 1]);
+});
+
+test('reports insufficient completed history without fetching extra Gameweeks', async () => {
+  const { service, liveCalls } = setup();
+  const { token } = await service.refresh(2);
+  const report = await service.analyse(2, 'special-rules', token);
+  assert.deepEqual(report.players, []);
+  assert.deepEqual(report.sources, []);
+  assert.deepEqual(report.rule5, {
+    weeks: [1], players: [], error: 'Two consecutive completed Gameweeks are needed to check this rule.'
   });
-  assert.deepEqual(liveCalls, [2]);
+  assert.deepEqual(liveCalls, [1]);
 });
 
 test('reports an unavailable scoring feed instead of returning an empty shortlist', async () => {
@@ -140,6 +167,19 @@ test('keeps the three-Gameweek rules available when the fourth scoring feed is u
   assert.match(report.rule2.error, /Gameweek 2 scoring is unavailable/);
 });
 
+test('keeps Special Rule5 available when the scoring feed for an older Gameweek is unavailable', async () => {
+  const { service } = setup({ missingWeek: 3 });
+  const { token } = await service.refresh(gameweek);
+  const report = await service.analyse(gameweek, 'special-rules', token);
+  for (const rule of [report, report.rule2, report.rule3, report.rule4]) {
+    assert.deepEqual(rule.players, []);
+    assert.match(rule.error, /Gameweek 3 scoring is unavailable/);
+  }
+  assert.equal(report.rule5.error, null);
+  assert.deepEqual(report.rule5.weeks, [4, 5]);
+  assert.deepEqual(report.rule5.players.map(player => player.id), [5, 13, 15, 18]);
+});
+
 test('does not treat Gameweeks separated by an unchecked Gameweek as consecutive', async () => {
   const { service, liveCalls } = setup({ uncheckedWeeks: [2, 6] });
   const { token } = await service.refresh(gameweek);
@@ -151,13 +191,16 @@ test('does not treat Gameweeks separated by an unchecked Gameweek as consecutive
   assert.deepEqual(liveCalls, [5, 3, 4]);
 });
 
-test('requires three consecutive completed Gameweeks for Special Rule3 and Special Rule4', async () => {
+test('requires consecutive completed Gameweeks for Special Rule3, Special Rule4 and Special Rule5', async () => {
   const { service } = setup({ uncheckedWeeks: [4, 6] });
   const { token } = await service.refresh(gameweek);
-  const { rule3, rule4 } = await service.analyse(gameweek, 'special-rules', token);
+  const { rule3, rule4, rule5 } = await service.analyse(gameweek, 'special-rules', token);
   for (const rule of [rule3, rule4]) {
     assert.deepEqual(rule.weeks, [2, 3, 5]);
     assert.deepEqual(rule.players, []);
     assert.match(rule.error, /Three consecutive completed Gameweeks/);
   }
+  assert.deepEqual(rule5.weeks, [3, 5]);
+  assert.deepEqual(rule5.players, []);
+  assert.match(rule5.error, /Two consecutive completed Gameweeks/);
 });
