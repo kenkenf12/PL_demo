@@ -50,12 +50,12 @@ function provider(fixtures, records, requests) {
   };
 }
 
-test('compares the latest four verified meetings and runs the shared squad selection in analysis and preview', async () => {
+test('compares the latest three verified meetings and runs the shared squad selection in analysis and preview', async () => {
   const [first, second, third, partial] = fixtures;
-  const [latest, reverse, next, oldestIncluded, older] = pastMeetings(first, [[1, 0], [1, 4], [1, 3], [1, 2], [0, 1]]);
-  const partialMeetings = pastMeetings(partial, [[1, 0], [0, 0], [2, 1]]);
+  const [latest, reverse, next, fourth, older] = pastMeetings(first, [[1, 0], [1, 4], [1, 3], [0, 1], [0, 2]]);
+  const partialMeetings = pastMeetings(partial, [[1, 0], [0, 0]]);
   const records = new Map([
-    [first.id, [older, next, latest, reverse, latest, oldestIncluded,
+    [first.id, [older, next, latest, reverse, latest, fourth,
       { ...latest, id: '601', date: '2026-11-27T12:00:00Z' },
       { ...latest, id: '602', date: '2026-09-15T15:00:00Z', statusType: { completed: false } },
       { ...latest, id: '603', date: '2026-10-15T15:00:00Z', competitors: sides(1, 3, 4, 0) },
@@ -78,17 +78,17 @@ test('compares the latest four verified meetings and runs the shared squad selec
   assert.equal(response.status, 201);
   const report = await response.json();
   assert.equal(report.strategy, 'h2h-index');
-  assert.equal(report.requiredMeetings, 4);
+  assert.equal(report.requiredMeetings, 3);
   const [homeWin, awayWin, draw, noPrediction] = report.matches;
-  assert.deepEqual(homeWin.meetings.map(meeting => meeting.id), [latest.id, reverse.id, next.id, oldestIncluded.id]);
+  assert.deepEqual(homeWin.meetings.map(meeting => meeting.id), [latest.id, reverse.id, next.id]);
   const rates = team => [team.goalProbability, team.cleanSheetProbability, team.teamIndex];
   assert.deepEqual(report.matches.map(match => [rates(match.home), rates(match.away), match.outcome, match.eligibleTeamIds]), [
-    [[1, 0.25, 125], [0.75, 0, 75], 'home', [1]],
-    [[0.25, 0, 25], [1, 0.75, 175], 'away', [4]],
-    [[0.75, 0.25, 100], [0.75, 0.25, 100], 'draw', [5, 6]],
+    [[1, 1 / 3, 400 / 3], [2 / 3, 0, 200 / 3], 'home', [1]],
+    [[1 / 3, 0, 100 / 3], [1, 2 / 3, 500 / 3], 'away', [4]],
+    [[2 / 3, 1 / 3, 100], [2 / 3, 1 / 3, 100], 'draw', [5, 6]],
     [[null, null, null], [null, null, null], null, []]
   ]);
-  assert.equal(noPrediction.meetings.length, 3);
+  assert.equal(noPrediction.meetings.length, 2);
   for (const match of [homeWin, awayWin, draw, noPrediction]) {
     assert.deepEqual(new Set(match.attacking.map(player => player.teamId)), new Set(match.eligibleTeamIds));
     assert.deepEqual(new Set(match.defensive.map(player => player.teamId)), new Set(match.eligibleTeamIds));
@@ -107,7 +107,7 @@ test('compares the latest four verified meetings and runs the shared squad selec
   const previewReport = await preview.json();
   assert.deepEqual(previewReport.preview, { fixtureCount: 4 });
   assert.deepEqual(previewReport.matches.map(match => match.id), fixtures.map(fixture => fixture.id));
-  assert.deepEqual(previewReport.matches[0].meetings.map(meeting => meeting.id), ['601', latest.id, reverse.id, next.id]);
+  assert.deepEqual(previewReport.matches[0].meetings.map(meeting => meeting.id), ['601', latest.id, reverse.id]);
   assert.equal(requests.length, 5);
 });
 
