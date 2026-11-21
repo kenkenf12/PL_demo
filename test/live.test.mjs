@@ -57,6 +57,8 @@ test('serves the dashboard and freshly retrieves a consistent current-season sna
   assert.doesNotMatch(page, /Weather Impact Prediction/);
   assert.doesNotMatch(page, /UK Betting Odds|value="odds"/);
   assert.doesNotMatch(page, /value="match-winners"/);
+  assert.doesNotMatch(page, /value="(?:head-to-head|season-binary)"/);
+  assert.match(page, /value="season-index"/);
   await request('/app.mjs');
   const now = new Date();
   assert.equal(season.seasonYear, now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0));

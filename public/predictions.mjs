@@ -193,50 +193,6 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${accuracy ? `<details class="provenance"><summary>Actual scoring source</summary>${sourceList(accuracy.sources)}</details>` : ''}`;
   }
 
-  function headToHeadView({ gameweek, matches, players, sources }) {
-    const split = rates => rates ? [rates.home, rates.draw, rates.away].map(percent).join(' / ') : '—';
-    const matchup = match => `${html(match.home.name)} v ${html(match.away.name)}`;
-    const teamRatesRow = (name, rates) => `<tr><th scope="row">${html(name)}</th>
-      <td>${percent(rates.win)}</td><td>${percent(rates.draw)}</td><td>${percent(rates.loss)}</td></tr>`;
-    const prediction = match => {
-      if (!match.outcome) return html(match.reason);
-      if (match.outcome === 'draw') return 'Draw';
-      const side = match.outcome === 'home' ? 'Home' : 'Away';
-      return `${side} win · ${html(match[match.outcome].name)}`;
-    };
-    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Head-to-Head (H2H) Analysis</h3></div>
-      ${matches.length ? `<p class="prediction-caption">Open a fixture to see the latest meetings, both clubs’ win, draw and loss rates, and the 50/50 average.</p>
-        <div class="scroll-table" tabindex="0" aria-label="Head-to-head match forecasts"><table>
-        <thead><tr><th scope="col">Fixture</th><th scope="col">Verified meetings</th>
-          <th scope="col">H2H home / draw / away</th><th scope="col">Predicted outcome</th></tr></thead>
-        <tbody>${matches.map(match => `<tr><td><strong>${matchup(match)}</strong></td><td>${match.meetings.length}/4</td>
-          <td>${split(match.probabilities)}</td><td>${prediction(match)}</td></tr>`).join('')}</tbody></table></div>
-        ${matches.map(match => `<details class="provenance"><summary>${matchup(match)}</summary>
-          ${match.meetings.length ? `<div class="scroll-table" tabindex="0" aria-label="Recent head-to-head meetings"><table>
-            <thead><tr><th scope="col">Date</th><th scope="col">Competition</th><th scope="col">Result</th></tr></thead>
-            <tbody>${match.meetings.map(meeting => `<tr><td>${shortDate.format(new Date(meeting.kickoff))}</td><td>${html(meeting.competition)}</td>
-              <td>${html(meeting.home)} ${meeting.homeScore}–${meeting.awayScore} ${html(meeting.away)}</td></tr>`).join('')}</tbody></table></div>`
-            : '<p>No head-to-head results were available for this fixture.</p>'}
-          ${match.teamRates ? `<div class="scroll-table" tabindex="0" aria-label="Head-to-head win, draw and loss percentages"><table>
-            <thead><tr><th scope="col">Club</th><th scope="col">Win</th><th scope="col">Draw</th><th scope="col">Loss</th></tr></thead>
-            <tbody>${teamRatesRow(match.home.name, match.teamRates.home)}${teamRatesRow(match.away.name, match.teamRates.away)}
-              ${teamRatesRow('Combined (50/50)', match.combined)}</tbody></table></div>
-            <p>Eligible clubs for the Top 15 · ${[match.home, match.away].filter(club => match.eligibleTeamIds.includes(club.id))
-              .map(club => html(club.name)).join(', ')}</p>` : `<p>${html(match.reason)}</p>`}</details>`).join('')}`
-        : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
-      <h4>H2H Top 15 player ranking</h4>
-      ${players.length ? `<p class="prediction-caption">Projected FPL points are summed across eligible fixtures. A dash indicates an unavailable score.</p>
-        <div class="scroll-table" tabindex="0" aria-label="H2H Top 15 player ranking"><table>
-        <thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
-          <th scope="col">Performance score (proj. FPL pts)</th></tr></thead>
-        <tbody>${players.map((player, index) => `<tr><td>${index + 1}</td><td>${html(player.name)}</td><td>${html(player.team)}</td>
-          <td>${html(player.position)}</td><td>${forecast(player.performanceScore)}</td></tr>`).join('')}</tbody></table></div>`
-        : '<p>No players are eligible for this Gameweek’s H2H ranking.</p>'}
-      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary><ul class="news-evidence">
-        ${sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.label)}</a>
-        <span>${source.origin ? `${html(source.origin)} · ` : ''}Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
-  }
-
   function seasonSquadView(squad) {
     const positionLabels = { GKP: 'Goalkeepers (GK)', DEF: 'Defenders (DEF)', MID: 'Midfielders (MID)', FWD: 'Forwards (FWD)' };
     const selected = squad.reduce((sum, group) => sum + group.players.length, 0);
@@ -246,7 +202,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     return `<h4>Final Top 15 player selection</h4>
       <p>${selected} of ${required} players selected.</p>
       ${shortages.length ? `<p>Insufficient eligible players. Missing ${shortages.join(', ')}.</p>` : ''}
-      <div class="scroll-table" tabindex="0" aria-label="Final season-based player selection"><table>
+      <div class="scroll-table" tabindex="0" aria-label="Final Top 15 player selection"><table>
         <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
           <th scope="col">Performance score (projected FPL points)</th></tr></thead>
         ${squad.map(({ positionCode, required, players }) => `<tbody>
@@ -277,42 +233,6 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
           ${seasonPlayerTable('Attacking players', match.attacking, 'Club goal rate')}
           ${seasonPlayerTable('Defensive players', match.defensive, 'Club clean-sheet rate')}
         </details>`;
-  }
-
-  function seasonBinaryView({ gameweek, matches, squad, sources }) {
-    const ratePair = (positive, negative, positiveMatches, negativeMatches) => `<td>
-      <strong>${seasonRate(positive)} / ${seasonRate(negative)}</strong>
-      <span class="player-meta">${positiveMatches} / ${negativeMatches} matches</span></td>`;
-    const teamCells = team => `<th scope="row">${html(team.name)}</th><td>${team.completedMatches}</td>
-      ${ratePair(team.goalProbability, team.noGoalProbability, team.goalMatches, team.noGoalMatches)}
-      ${ratePair(team.cleanSheetProbability, team.noCleanSheetProbability, team.cleanSheetMatches, team.noCleanSheetMatches)}`;
-    const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
-    const outcomeRow = match => {
-      const { percentages, mostLikely, predictedOutcome, uncertain } = match.outcomeAnalysis;
-      const cells = Object.keys(outcomeLabels).map(key => `<td>${percentages ? percent(percentages[key] / 100) : '—'}</td>`).join('');
-      const result = predictedOutcome ? outcomeLabels[predictedOutcome]
-        : `${mostLikely.map(key => outcomeLabels[key]).join(' / ')} (tied)`;
-      return `<tr><th scope="row">${seasonMatchup(match)}</th>${cells}<td>${percentages
-        ? `<strong>${result}</strong>${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
-        : 'Insufficient season data'}</td></tr>`;
-    };
-    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season-Based Goals &amp; Clean Sheets</h3></div>
-      ${matches.length ? `<p class="prediction-caption">Rates use each club’s completed league matches from earlier completed Gameweeks this season.</p>
-        <div class="scroll-table" tabindex="0" aria-label="Team goal and clean-sheet predictions"><table>
-        <thead><tr><th scope="col">Fixture</th><th scope="col">Team</th>
-          <th scope="col">Season matches</th><th scope="col">Goal / No Goal</th><th scope="col">Clean Sheet / No Clean Sheet</th></tr></thead>
-        ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${teamCells(match.home)}</tr>
-          <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
-        <h4>Match Outcome Analysis</h4>
-          <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain. A tie for first between Home Win and Away Win is shown as Draw.</p>
-          <div class="scroll-table" tabindex="0" aria-label="Season-based match outcome estimates"><table>
-          <thead><tr><th scope="col">Fixture</th><th scope="col">Home Win</th><th scope="col">Draw</th>
-            <th scope="col">Away Win</th><th scope="col">Predicted outcome</th></tr></thead>
-          <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>
-        <p class="prediction-caption">Open a fixture to see both player groups. Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.</p>
-        ${matches.map(seasonPlayerAnalysis).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
-      ${seasonSquadView(squad)}
-      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
 
   function seasonIndexView({ gameweek, teams, matches, latestCompletedGameweek, squad, sources }) {
@@ -480,8 +400,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'head-to-head': headToHeadView, 'special-rules': specialRulesView,
-    'season-binary': seasonBinaryView, 'season-index': seasonIndexView };
+  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView };
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();

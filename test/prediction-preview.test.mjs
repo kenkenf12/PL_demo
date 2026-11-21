@@ -36,15 +36,16 @@ function setup({ matches = fixtures, finished = false, ...strategies } = {}) {
   return { state, ready, getHistory: () => api('GET', url('predictions')) };
 }
 
-test('rejects new Match & Player requests and retains the saved report', async () => {
+test('rejects retired strategies and retains the saved report', async () => {
   const { state, ready, getHistory } = setup();
   const archived = { id: 'archived-prediction', strategy: 'match-winners', seasonYear: 2025, gameweek,
     matches: [{ id: 1 }], players: [{ id: 11, predicted: 5 }] };
   state.saved.push(archived);
   const run = await ready();
-  assert.equal((await run('predictions', 'match-winners')).status, 400);
+  const retired = ['match-winners', 'head-to-head', 'season-binary', 'team-binary'];
+  for (const strategy of retired) assert.equal((await run('predictions', strategy)).status, 400);
   state.time = deadline;
-  assert.equal((await run('prediction-preview', 'match-winners')).status, 400);
+  for (const strategy of retired) assert.equal((await run('prediction-preview', strategy)).status, 400);
   assert.deepEqual(await (await getHistory()).json(), [archived]);
 });
 
@@ -76,12 +77,12 @@ test('previews only future kick-offs and lists remaining players when a legal sq
     { ...fixtures[1], id: 23, kickoff_time: fixtures[2].kickoff_time, finished_provisional: true }];
   const seen = [];
   const { state, ready } = setup({ matches,
-    seasonBinary: async (dashboard, scheduled) => ({ matches: scheduled, sources: [] }),
+    seasonIndex: async (dashboard, scheduled) => ({ matches: scheduled, sources: [] }),
     news: async eligible => { seen.push(...eligible.map(player => player.team)); return { recommendations: [] }; }
   });
   state.time = deadline + 2 * hour;
   const run = await ready();
-  const matchup = await (await run('prediction-preview', 'season-binary')).json();
+  const matchup = await (await run('prediction-preview', 'season-index')).json();
   assert.deepEqual(matchup.matches.map(match => match.id), [5]);
   assert.equal(matchup.id, undefined);
   const squad = await (await run('prediction-preview', 'previous')).json();
@@ -108,13 +109,13 @@ test('rejects a preview for a finished Gameweek and keeps Special Rules on its o
 });
 
 test('rejects a preview if an included fixture kicks off during analysis', async () => {
-  const { state, ready } = setup({ seasonBinary: async () => {
+  const { state, ready } = setup({ seasonIndex: async () => {
     state.time = deadline + hour;
     return { matches: [], sources: [] };
   } });
   state.time = deadline + 1;
   const run = await ready();
-  const result = await run('prediction-preview', 'season-binary');
+  const result = await run('prediction-preview', 'season-index');
   assert.equal(result.status, 409);
   assert.match((await result.json()).error, /kicked off during the preview/);
   assert.deepEqual(state.saved, []);
