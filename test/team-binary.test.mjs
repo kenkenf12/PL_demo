@@ -127,7 +127,7 @@ test('serves only upcoming fixtures through the independent binary prediction op
   const report = await response.json();
   assert.equal(report.strategy, 'team-binary');
   assert.deepEqual(report.matches.map(match => match.id), [99]);
-  assert.ok(report.matches.every(match => !Object.hasOwn(match, 'outcome')));
+  assert.ok(report.matches.every(match => !Object.hasOwn(match, 'outcome') && !Object.hasOwn(match, 'outcomeAnalysis')));
   assert.equal(report.sources.length, 3);
 });
 
@@ -142,6 +142,8 @@ test('uses every earlier completed season match across venues and keeps both bin
   assert.deepEqual(away, { id: 2, name: 'Away club', completedMatches: 5,
     goalMatches: 2, noGoalMatches: 3, cleanSheetMatches: 3, noCleanSheetMatches: 2,
     goalProbability: 2 / 5, noGoalProbability: 3 / 5, cleanSheetProbability: 3 / 5, noCleanSheetProbability: 2 / 5 });
+  assert.deepEqual(report.matches[0].outcomeAnalysis,
+    { percentages: { home: 43.2, draw: 30.3, away: 26.5 }, mostLikely: ['home'], uncertain: true });
   for (const team of [home, away]) {
     assert.equal(team.goalProbability + team.noGoalProbability, 1);
     assert.equal(team.cleanSheetProbability + team.noCleanSheetProbability, 1);

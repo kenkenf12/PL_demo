@@ -269,6 +269,15 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     const coverage = seasonBased ? 'Rates use each club’s completed league matches from earlier completed Gameweeks this season.'
       : `${completedMatches ? `Based on ${completedMatches} completed league matches.`
         : 'Team scoring chances start at 50% before league results are available.'} Goal is predicted at 50% or higher.`;
+    const outcomeLabels = { home: 'Home Win', draw: 'Draw', away: 'Away Win' };
+    const outcomeRow = match => {
+      const { percentages, mostLikely, uncertain } = match.outcomeAnalysis;
+      const cells = Object.keys(outcomeLabels).map(key => `<td>${percentages ? percent(percentages[key] / 100) : '—'}</td>`).join('');
+      const result = mostLikely.map(key => outcomeLabels[key]).join(' / ');
+      return `<tr><th scope="row">${matchup(match)}</th>${cells}<td>${percentages
+        ? `<strong>${result}</strong>${mostLikely.length > 1 ? ' (tied)' : ''}${uncertain ? '<span class="player-meta">Uncertain</span>' : ''}`
+        : 'Insufficient season data'}</td></tr>`;
+    };
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · ${title}</h3></div>
       ${matches.length ? `<p class="prediction-caption">${coverage}</p>
         <div class="scroll-table" tabindex="0" aria-label="Team goal and clean-sheet predictions"><table>
@@ -277,6 +286,12 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
             : '<th scope="col">Goal prediction</th><th scope="col">Clean sheet prediction</th>'}</tr></thead>
         ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${matchup(match)}</th>${teamCells(match.home)}</tr>
           <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
+        ${seasonBased ? `<h4>Match Outcome Analysis</h4>
+          <p class="prediction-caption">The estimate combines each club’s attack with its opponent’s defence and treats the two scoring events as independent. When both clubs score, the estimate splits that scenario equally. A different split could change the most likely result in fixtures marked uncertain.</p>
+          <div class="scroll-table" tabindex="0" aria-label="Season-based match outcome estimates"><table>
+          <thead><tr><th scope="col">Fixture</th><th scope="col">Home Win</th><th scope="col">Draw</th>
+            <th scope="col">Away Win</th><th scope="col">Most likely</th></tr></thead>
+          <tbody>${matches.map(outcomeRow).join('')}</tbody></table></div>` : ''}
         <p class="prediction-caption">Open a fixture to see both player groups. ${seasonBased
           ? 'Players with projections are ordered by their club’s goal or clean-sheet rate, then by projected FPL points.'
           : 'Players with scores appear first, with priority given to the relevant team prediction.'}</p>
