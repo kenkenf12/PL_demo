@@ -123,10 +123,13 @@ test('leaves a fixture unpredicted when its head-to-head feed fails', async () =
   assert.deepEqual(squad.flatMap(group => group.players), []);
 });
 
-test('combined index reuses both source indices and selects players for the averaged outcome', async () => {
+test('combined index normalises the source averages and applies the strict draw threshold', async () => {
   const [first, second, third, partial] = fixtures;
   const noSeason = { ...first, id: 55, team_a: 8 };
-  const upcoming = [...fixtures, noSeason];
+  const close = { ...first, id: 56, team_a: 4 };
+  const homeBoundary = { ...first, id: 57, team_a: 6 };
+  const awayBoundary = { ...first, id: 58, team_h: 6, team_a: 1 };
+  const upcoming = [...fixtures, noSeason, close, homeBoundary, awayBoundary];
   const seasonResults = [[1, 2, 1, 0], [3, 4, 2, 1], [5, 7, 1, 2], [6, 7, 0, 1], [7, 6, 1, 0], [6, 7, 2, 1]]
     .map(([team_h, team_a, team_h_score, team_a_score], index) => ({ id: index + 1, event: index + 1,
       team_h, team_a, team_h_score, team_a_score, finished: true, kickoff_time: `2026-08-0${index + 1}T15:00:00Z` }));
@@ -139,7 +142,10 @@ test('combined index reuses both source indices and selects players for the aver
     [second.id, pastMeetings(second, [[0, 1], [0, 1], [0, 1]])],
     [third.id, pastMeetings(third, [[0, 1], [1, 2], [1, 0]])],
     [partial.id, pastMeetings(partial, [[1, 0], [0, 0]])],
-    [noSeason.id, pastMeetings(noSeason, [[1, 0], [0, 0], [0, 1]])]
+    [noSeason.id, pastMeetings(noSeason, [[1, 0], [0, 0], [0, 1]])],
+    [close.id, pastMeetings(close, [[1, 1], [1, 2], [0, 1]])],
+    [homeBoundary.id, pastMeetings(homeBoundary, [[2, 1], [0, 1], [0, 1]])],
+    [awayBoundary.id, pastMeetings(awayBoundary, [[1, 2], [1, 0], [1, 0]])]
   ]);
   const requests = [];
   let now = asOf;
@@ -159,11 +165,17 @@ test('combined index reuses both source indices and selects players for the aver
   assert.equal(combined.latestCompletedGameweek, 6);
   assert.equal(combined.requiredMeetings, 3);
   assert.deepEqual(combined.matches.map(match => [match.id, match.outcome, match.eligibleTeamIds]), [
-    [first.id, 'home', [1]], [second.id, 'away', [4]], [third.id, 'draw', [5, 6]], [partial.id, null, []], [noSeason.id, null, []]
+    [first.id, 'home', [1]], [second.id, 'away', [4]], [third.id, 'draw', [5, 6]], [partial.id, null, []], [noSeason.id, null, []],
+    [close.id, 'draw', [1, 4]], [homeBoundary.id, 'home', [1]], [awayBoundary.id, 'away', [1]]
   ]);
   assert.equal(h2h.matches[0].outcome, 'away');
   assert.equal(season.matches[1].outcome, 'home');
   assert.deepEqual([combined.matches[2].home.teamIndex, combined.matches[2].away.teamIndex], [350 / 3, 350 / 3]);
+  const percentages = match => [match.homePercentage, match.awayPercentage];
+  assert.deepEqual(percentages(combined.matches[2]), [50, 50]);
+  assert.ok(combined.matches[5].home.teamIndex > combined.matches[5].away.teamIndex);
+  assert.deepEqual(percentages(combined.matches[6]), [55, 45]);
+  assert.deepEqual(percentages(combined.matches[7]), [45, 55]);
   for (const [index, match] of combined.matches.entries()) {
     assert.deepEqual(match.meetings, h2h.matches[index].meetings);
     for (const side of ['home', 'away']) {
@@ -178,6 +190,12 @@ test('combined index reuses both source indices and selects players for the aver
         assert.equal(team.cleanSheetProbability, (seasonCleanSheet + h2hCleanSheet) / 2);
       }
     }
+    if (match.outcome) {
+      const totalIndex = match.home.teamIndex + match.away.teamIndex;
+      assert.equal(match.homePercentage + match.awayPercentage, 100);
+      assert.ok(Math.abs(match.homePercentage - 100 * match.home.teamIndex / totalIndex) < 1e-12);
+      assert.ok(Math.abs(match.awayPercentage - 100 * match.away.teamIndex / totalIndex) < 1e-12);
+    } else assert.deepEqual(percentages(match), [null, null]);
     for (const [players, rate] of [[match.attacking, 'goalProbability'], [match.defensive, 'cleanSheetProbability']]) {
       assert.deepEqual(new Set(players.map(player => player.teamId)), new Set(match.eligibleTeamIds));
       assert.ok(players.every(player => player.priority === (player.teamId === match.home.id ? match.home : match.away)[rate]));
@@ -189,6 +207,6 @@ test('combined index reuses both source indices and selects players for the aver
 
   now = Date.parse('2026-11-28T14:00:00Z');
   const preview = await report('combined-index', 'prediction-preview');
-  assert.deepEqual(preview, { ...combined, preview: { fixtureCount: 5 } });
-  assert.equal(requests.length, 6);
+  assert.deepEqual(preview, { ...combined, preview: { fixtureCount: 8 } });
+  assert.equal(requests.length, 9);
 });

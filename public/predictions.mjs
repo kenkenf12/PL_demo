@@ -240,12 +240,21 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
         </details>`;
   }
 
-  function indexMatchOutcomes(matches, label, missingData) {
+  function relativeIndexCells(match) {
+    if (match.homePercentage == null || match.awayPercentage == null) return '<td>—</td><td>—</td>';
+    // Round the displayed shares together so they still add up to 100%.
+    const home = Math.round(match.homePercentage * 1000) / 1000;
+    return `<td>${seasonIndexValue(home)}%</td><td>${seasonIndexValue(100 - home)}%</td>`;
+  }
+
+  function indexMatchOutcomes(matches, label, missingData, showPercentages = false) {
     return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
         <thead><tr><th scope="col">Fixture</th><th scope="col">Home Index</th><th scope="col">Away Index</th>
+          ${showPercentages ? '<th scope="col">Home Percentage</th><th scope="col">Away Percentage</th>' : ''}
           <th scope="col">Predicted outcome</th></tr></thead>
         <tbody>${matches.map(match => `<tr><th scope="row">${seasonMatchup(match)}</th>
           <td>${seasonIndexValue(match.home.teamIndex)}</td><td>${seasonIndexValue(match.away.teamIndex)}</td>
+          ${showPercentages ? relativeIndexCells(match) : ''}
           <td>${match.outcome ? `<strong>${indexOutcomeLabels[match.outcome]}</strong>` : missingData}</td></tr>`).join('')}
         </tbody></table></div>`;
   }
@@ -310,7 +319,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
           ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${teamCells(match.home)}</tr>
             <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
         <h4>Match Outcome Analysis</h4>
-        ${indexMatchOutcomes(matches, 'Combined Index match predictions', 'Both indices are required')}
+        <p class="prediction-caption">The percentages show each club’s share of the total index. A gap below 10 percentage points with both shares above 45% predicts a draw.</p>
+        ${indexMatchOutcomes(matches, 'Combined Index match predictions', 'Both indices are required', true)}
         ${matches.map(match => h2hMeetingsView(match, requiredMeetings)
           + (match.outcome ? seasonPlayerAnalysis(match) : '')).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
       ${seasonSquadView(squad)}
