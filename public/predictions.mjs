@@ -201,7 +201,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       .map(({ positionCode, required, players }) => `${required - players.length} ${positionCode === 'GKP' ? 'GK' : positionCode}`);
     return `<h4>Final Top 15 player selection</h4>
       <p>${selected} of ${required} players selected.</p>
-      ${shortages.length ? `<p>Insufficient eligible players. Missing ${shortages.join(', ')}.</p>` : ''}
+      ${shortages.length ? `<p>Too few eligible players fit the position and three-player club limits. Missing ${shortages.join(', ')}.</p>` : ''}
       <div class="scroll-table" tabindex="0" aria-label="Final Top 15 player selection"><table>
         <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Position</th>
           <th scope="col">Performance score (projected FPL points)</th></tr></thead>

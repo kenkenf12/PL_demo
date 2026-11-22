@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createApiHandler } from '../lib/http.mjs';
 import { createFixturePlayerScorer } from '../lib/fixture-player-scoring.mjs';
+import { selectMatchPlayers } from '../lib/match-index.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 import { createSeasonIndexAnalysis } from '../lib/season-index.mjs';
 
@@ -113,11 +114,12 @@ test('season index applies fixture eligibility to the shared player rankings and
   }
   assert.deepEqual(report.matches[2].attacking.map(player => player.teamId), [4, 4, 4, 4, 2, 2, 2, 2]);
   assert.deepEqual(report.matches[2].defensive.map(player => player.teamId), [2, 2, 2, 2, 4, 4, 4, 4]);
-  assert.deepEqual(report.squad.map(group => [group.positionCode, group.required, group.players.length]), [
-    ['GKP', 2, 2], ['DEF', 5, 5], ['MID', 5, 5], ['FWD', 3, 3]
-  ]);
+  assert.deepEqual(report.squad.map(group => [group.positionCode, group.required]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
+  assert.ok(report.squad.every(group => group.players.length <= group.required));
   const selected = report.squad.flatMap(group => group.players);
-  assert.equal(new Set(selected.map(player => player.id)).size, 15);
+  assert.equal(selected.length, 9);
+  assert.equal(new Set(selected.map(player => player.id)).size, 9);
+  assert.deepEqual([1, 2, 4].map(teamId => selected.filter(player => player.teamId === teamId).length), [3, 3, 3]);
   for (const player of selected) {
     const rows = report.matches.flatMap(match => [...match.attacking, ...match.defensive]).filter(row => row.id === player.id);
     assert.equal(rows.length, player.teamId === 1 ? 2 : 1);
@@ -129,6 +131,27 @@ test('season index applies fixture eligibility to the shared player rankings and
   const previewResponse = await api('POST', url('prediction-preview', query));
   assert.equal(previewResponse.status, 200);
   assert.deepEqual(await previewResponse.json(), { ...report, preview: { fixtureCount: 3 } });
+});
+
+test('fills all 15 slots by reserving club capacity for positions with fewer candidates', async () => {
+  const teams = Array.from({ length: 5 }, (_, index) => ({ id: index + 1, name: `Club ${index + 1}`,
+    goalProbability: 1 - index / 10, cleanSheetProbability: 1 - index / 10 }));
+  const roster = [[1, 1, 2, 3, 4, 4, 4, 4], [1, 2, 3], [1, 2, 3], [2, 2, 3], [2, 3, 3]];
+  const players = teams.flatMap(team => roster[team.id - 1].map((element_type, index) => ({
+    id: team.id * 100 + index + 1, web_name: `${team.name} player ${index + 1}`, team: team.id, element_type
+  })));
+  const fixtures = [[1, 2], [3, 4], [5, 1]].map(([team_h, team_a], index) => ({
+    id: index + 1, event: 1, kickoff_time: kickoff, team_h, team_a
+  }));
+  const matches = fixtures.map(({ id, team_h, team_a }) => ({ id, home: teams[team_h - 1], away: teams[team_a - 1],
+    eligibleTeamIds: [team_h, team_a] }));
+  const { squad } = await selectMatchPlayers({}, { teams, positions, players, fixtures, events: [] }, fixtures, 1, null, matches);
+  assert.deepEqual(squad.map(group => [group.positionCode, group.players.length]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
+  assert.deepEqual(squad[0].players.map(player => player.id), [201, 301]);
+  assert.deepEqual(squad[3].players.map(player => player.id), [105, 106, 107]);
+  const selected = squad.flatMap(group => group.players);
+  assert.equal(new Set(selected.map(player => player.id)).size, 15);
+  assert.deepEqual(teams.map(team => selected.filter(player => player.teamId === team.id).length), [3, 3, 3, 3, 3]);
 });
 
 test('season index treats equal fractions as a draw and leaves matches with missing data unpredicted', async () => {

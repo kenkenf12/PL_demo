@@ -98,9 +98,12 @@ test('compares the latest three verified meetings and runs the shared squad sele
     assert.ok(match.attacking.every(player => player.priority === match[player.teamId === match.home.id ? 'home' : 'away'].goalProbability));
     assert.ok(match.defensive.every(player => player.priority === match[player.teamId === match.home.id ? 'home' : 'away'].cleanSheetProbability));
   }
-  assert.deepEqual(report.squad.map(({ positionCode, players }) => [positionCode, players.length]),
-    [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
-  assert.equal(new Set(report.squad.flatMap(group => group.players.map(player => player.id))).size, 15);
+  assert.deepEqual(report.squad.map(({ positionCode, required }) => [positionCode, required]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
+  assert.ok(report.squad.every(group => group.players.length <= group.required));
+  const selected = report.squad.flatMap(group => group.players);
+  assert.equal(selected.length, 12);
+  assert.equal(new Set(selected.map(player => player.id)).size, 12);
+  assert.deepEqual([1, 4, 5, 6].map(teamId => selected.filter(player => player.teamId === teamId).length), [3, 3, 3, 3]);
   assert.equal(report.sources.length, 5);
   assert.equal(requests.filter(path => path.includes('/scoreboard')).length, 1);
 
@@ -201,8 +204,12 @@ test('combined index normalises the source averages and applies the strict draw 
       assert.ok(players.every(player => player.priority === (player.teamId === match.home.id ? match.home : match.away)[rate]));
     }
   }
-  assert.deepEqual(combined.squad.map(group => [group.positionCode, group.players.length]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
-  assert.equal(new Set(combined.squad.flatMap(group => group.players.map(player => player.id))).size, 15);
+  assert.deepEqual(combined.squad.map(group => [group.positionCode, group.required]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
+  assert.ok(combined.squad.every(group => group.players.length <= group.required));
+  const selected = combined.squad.flatMap(group => group.players);
+  assert.equal(selected.length, 12);
+  assert.equal(new Set(selected.map(player => player.id)).size, 12);
+  assert.deepEqual([1, 4, 5, 6].map(teamId => selected.filter(player => player.teamId === teamId).length), [3, 3, 3, 3]);
   assert.deepEqual(combined.sources, h2h.sources);
 
   now = Date.parse('2026-11-28T14:00:00Z');
