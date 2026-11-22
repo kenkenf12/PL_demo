@@ -296,6 +296,27 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
   }
 
+  function combinedIndexView({ gameweek, matches, latestCompletedGameweek, requiredMeetings, squad, sources }) {
+    const teamCells = team => `<th scope="row">${html(team.name)}</th><td>${seasonIndexValue(team.seasonTeamIndex)}</td>
+      <td>${seasonIndexValue(team.h2hTeamIndex)}</td><td><strong>${seasonIndexValue(team.teamIndex)}</strong></td>`;
+    const seasonScope = latestCompletedGameweek ? `Season data covers Gameweek 1 through Gameweek ${latestCompletedGameweek}.`
+      : 'No completed season Gameweeks are available yet.';
+    return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Combined Index Match Predictor</h3></div>
+      ${matches.length ? `<h4>Combined Team Index</h4>
+        <p class="prediction-caption">The Combined Index gives equal weight to the Season and H2H indices. ${seasonScope}</p>
+        <div class="scroll-table" tabindex="0" aria-label="Combined team indices"><table>
+          <thead><tr><th scope="col">Fixture</th><th scope="col">Club</th><th scope="col">Season Team Index</th>
+            <th scope="col">H2H Team Index</th><th scope="col">Combined Team Index</th></tr></thead>
+          ${matches.map(match => `<tbody><tr><th scope="rowgroup" rowspan="2">${seasonMatchup(match)}</th>${teamCells(match.home)}</tr>
+            <tr>${teamCells(match.away)}</tr></tbody>`).join('')}</table></div>
+        <h4>Match Outcome Analysis</h4>
+        ${indexMatchOutcomes(matches, 'Combined Index match predictions', 'Both indices are required')}
+        ${matches.map(match => h2hMeetingsView(match, requiredMeetings)
+          + (match.outcome ? seasonPlayerAnalysis(match) : '')).join('')}` : '<p>No upcoming fixtures are scheduled for this Gameweek.</p>'}
+      ${seasonSquadView(squad)}
+      ${sources.length ? `<details class="provenance"><summary>Analysis data sources</summary>${sourceList(sources)}</details>` : ''}`;
+  }
+
   function specialRuleTable({ weeks, players }, label, showStarts) {
     if (!players.length) return `<p>No players matched across ${weeks.map(week => `GW${week}`).join(', ')}.</p>`;
     return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table>
@@ -434,7 +455,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView, 'h2h-index': h2hIndexView };
+  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView,
+    'h2h-index': h2hIndexView, 'combined-index': combinedIndexView };
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();

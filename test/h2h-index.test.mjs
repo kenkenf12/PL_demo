@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createH2HIndexAnalysis } from '../lib/h2h-index.mjs';
+import { createH2HIndexAnalysis, createH2HTeamIndices } from '../lib/h2h-index.mjs';
 import { createApiHandler } from '../lib/http.mjs';
 import { predictionService } from '../lib/predictions.mjs';
 
@@ -121,4 +121,74 @@ test('leaves a fixture unpredicted when its head-to-head feed fails', async () =
   const { matches: [match], squad } = await analyse(dashboard, [fixture], gameweek, null, asOf);
   assert.deepEqual([match.meetings, match.outcome, match.home.teamIndex, match.away.teamIndex], [[], null, null, null]);
   assert.deepEqual(squad.flatMap(group => group.players), []);
+});
+
+test('combined index reuses both source indices and selects players for the averaged outcome', async () => {
+  const [first, second, third, partial] = fixtures;
+  const noSeason = { ...first, id: 55, team_a: 8 };
+  const upcoming = [...fixtures, noSeason];
+  const seasonResults = [[1, 2, 1, 0], [3, 4, 2, 1], [5, 7, 1, 2], [6, 7, 0, 1], [7, 6, 1, 0], [6, 7, 2, 1]]
+    .map(([team_h, team_a, team_h_score, team_a_score], index) => ({ id: index + 1, event: index + 1,
+      team_h, team_a, team_h_score, team_a_score, finished: true, kickoff_time: `2026-08-0${index + 1}T15:00:00Z` }));
+  const scheduled = [...upcoming, { ...first, id: 90, started: true }];
+  const data = { ...dashboard, teams: [...teams, { id: 8, name: 'Club 8' }], fixtures: [...scheduled, ...seasonResults], events: [
+    ...seasonResults.map(({ event }) => ({ id: event, finished: true, data_checked: true })), { id: gameweek, deadline_time: deadline }
+  ] };
+  const records = new Map([
+    [first.id, pastMeetings(first, [[0, 0], [1, 1], [1, 2]])],
+    [second.id, pastMeetings(second, [[0, 1], [0, 1], [0, 1]])],
+    [third.id, pastMeetings(third, [[0, 1], [1, 2], [1, 0]])],
+    [partial.id, pastMeetings(partial, [[1, 0], [0, 0]])],
+    [noSeason.id, pastMeetings(noSeason, [[1, 0], [0, 0], [0, 1]])]
+  ]);
+  const requests = [];
+  let now = asOf;
+  const fpl = { getDashboard: async () => data, getLive: async () => null };
+  const history = { read: async () => [], update: async () => assert.fail('An index strategy wrote prediction history') };
+  const h2hTeamIndices = createH2HTeamIndices(provider(upcoming, records, requests));
+  const api = createApiHandler(fpl, predictionService(fpl, { h2hTeamIndices, history, now: () => now }));
+  const url = (path, parameters) => new URL(`http://localhost/api/${path}?${new URLSearchParams(parameters)}`);
+  const { token } = await (await api('POST', url('prediction-data', { gameweek }))).json();
+  async function report(strategy, path = 'predictions') {
+    const response = await api('POST', url(path, { gameweek, strategy, token }));
+    assert.equal(response.status, path === 'predictions' ? 201 : 200);
+    return response.json();
+  }
+  const [season, h2h, combined] = await Promise.all(['season-index', 'h2h-index', 'combined-index'].map(strategy => report(strategy)));
+  assert.equal(combined.strategy, 'combined-index');
+  assert.equal(combined.latestCompletedGameweek, 6);
+  assert.equal(combined.requiredMeetings, 3);
+  assert.deepEqual(combined.matches.map(match => [match.id, match.outcome, match.eligibleTeamIds]), [
+    [first.id, 'home', [1]], [second.id, 'away', [4]], [third.id, 'draw', [5, 6]], [partial.id, null, []], [noSeason.id, null, []]
+  ]);
+  assert.equal(h2h.matches[0].outcome, 'away');
+  assert.equal(season.matches[1].outcome, 'home');
+  assert.deepEqual([combined.matches[2].home.teamIndex, combined.matches[2].away.teamIndex], [350 / 3, 350 / 3]);
+  for (const [index, match] of combined.matches.entries()) {
+    assert.deepEqual(match.meetings, h2h.matches[index].meetings);
+    for (const side of ['home', 'away']) {
+      const { teamIndex: seasonTeamIndex, goalProbability: seasonGoal, cleanSheetProbability: seasonCleanSheet } = season.matches[index][side];
+      const { teamIndex: h2hTeamIndex, goalProbability: h2hGoal, cleanSheetProbability: h2hCleanSheet } = h2h.matches[index][side];
+      const team = match[side];
+      assert.deepEqual([team.seasonTeamIndex, team.h2hTeamIndex], [seasonTeamIndex, h2hTeamIndex]);
+      if (seasonTeamIndex === null || h2hTeamIndex === null) assert.equal(team.teamIndex, null);
+      else {
+        assert.ok(Math.abs(team.teamIndex - (seasonTeamIndex + h2hTeamIndex) / 2) < 1e-12);
+        assert.equal(team.goalProbability, (seasonGoal + h2hGoal) / 2);
+        assert.equal(team.cleanSheetProbability, (seasonCleanSheet + h2hCleanSheet) / 2);
+      }
+    }
+    for (const [players, rate] of [[match.attacking, 'goalProbability'], [match.defensive, 'cleanSheetProbability']]) {
+      assert.deepEqual(new Set(players.map(player => player.teamId)), new Set(match.eligibleTeamIds));
+      assert.ok(players.every(player => player.priority === (player.teamId === match.home.id ? match.home : match.away)[rate]));
+    }
+  }
+  assert.deepEqual(combined.squad.map(group => [group.positionCode, group.players.length]), [['GKP', 2], ['DEF', 5], ['MID', 5], ['FWD', 3]]);
+  assert.equal(new Set(combined.squad.flatMap(group => group.players.map(player => player.id))).size, 15);
+  assert.deepEqual(combined.sources, h2h.sources);
+
+  now = Date.parse('2026-11-28T14:00:00Z');
+  const preview = await report('combined-index', 'prediction-preview');
+  assert.deepEqual(preview, { ...combined, preview: { fixtureCount: 5 } });
+  assert.equal(requests.length, 6);
 });

@@ -60,6 +60,7 @@ test('serves the dashboard and freshly retrieves a consistent current-season sna
   assert.doesNotMatch(page, /value="(?:head-to-head|season-binary)"/);
   assert.match(page, /value="season-index"/);
   assert.match(page, /value="h2h-index"/);
+  assert.match(page, /value="combined-index"/);
   await request('/app.mjs');
   const now = new Date();
   assert.equal(season.seasonYear, now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0));
