@@ -256,7 +256,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       : 'No completed Gameweeks are available yet.';
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · Season Index Match Predictor</h3></div>
       <h4>Team Index</h4>
-      <p class="prediction-caption">${scope} The index adds the goal, clean-sheet, and win-or-draw percentages.</p>
+      <p class="prediction-caption">${scope} The index adds the goal, clean-sheet, and win-or-draw percentages. Draws count for half a point.</p>
       <div class="scroll-table" tabindex="0" aria-label="Season team indices"><table>
         <thead><tr><th scope="col">Club</th><th scope="col">Matches</th><th scope="col">Goal Probability (%)</th>
           <th scope="col">Clean Sheet Probability (%)</th><th scope="col">Win or Draw Percentage (%)</th><th scope="col">Team Index</th></tr></thead>
@@ -281,7 +281,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   function h2hIndexView({ gameweek, matches, requiredMeetings, squad, sources }) {
     return `<div class="prediction-result-head"><h3>Gameweek ${gameweek} · H2H Index Match Predictor</h3></div>
       ${matches.length ? `<h4>H2H Team Index</h4>
-        <p class="prediction-caption">The index adds the goal, clean-sheet, and win-or-draw percentages from the ${requiredMeetings} most recent completed head-to-head meetings.</p>
+        <p class="prediction-caption">The index adds the goal, clean-sheet, and win-or-draw percentages from the ${requiredMeetings} most recent completed head-to-head meetings. Draws count for half a point.</p>
         <div class="scroll-table" tabindex="0" aria-label="Head-to-head team indices"><table>
           <thead><tr><th scope="col">Fixture</th><th scope="col">Club</th><th scope="col">Verified meetings</th>
             <th scope="col">Goal Probability (%)</th><th scope="col">Clean Sheet Probability (%)</th>

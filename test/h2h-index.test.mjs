@@ -83,12 +83,15 @@ test('compares the latest three verified meetings and runs the shared squad sele
   assert.deepEqual(homeWin.meetings.map(meeting => meeting.id), [latest.id, reverse.id, next.id]);
   const rates = team => [team.goalProbability, team.cleanSheetProbability, team.winOrDrawProbability, team.teamIndex];
   assert.deepEqual(report.matches.map(match => [rates(match.home), rates(match.away), match.outcome, match.eligibleTeamIds]), [
-    [[1, 0, 1, 200], [1, 0, 1 / 3, 400 / 3], 'home', [1]],
+    [[1, 0, 5 / 6, 550 / 3], [1, 0, 1 / 6, 350 / 3], 'home', [1]],
     [[1 / 3, 0, 0, 100 / 3], [1, 2 / 3, 1, 800 / 3], 'away', [4]],
-    [[2 / 3, 1 / 3, 2 / 3, 500 / 3], [2 / 3, 1 / 3, 2 / 3, 500 / 3], 'draw', [5, 6]],
+    [[2 / 3, 1 / 3, 0.5, 150], [2 / 3, 1 / 3, 0.5, 150], 'draw', [5, 6]],
     [[null, null, null, null], [null, null, null, null], null, []]
   ]);
   assert.equal(noPrediction.meetings.length, 2);
+  for (const match of [homeWin, awayWin, draw]) {
+    assert.equal(match.home.winOrDrawProbability + match.away.winOrDrawProbability, 1);
+  }
   for (const match of [homeWin, awayWin, draw, noPrediction]) {
     assert.deepEqual(new Set(match.attacking.map(player => player.teamId)), new Set(match.eligibleTeamIds));
     assert.deepEqual(new Set(match.defensive.map(player => player.teamId)), new Set(match.eligibleTeamIds));

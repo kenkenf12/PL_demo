@@ -91,8 +91,8 @@ test('season index applies fixture eligibility to the shared player rankings and
   assert.equal(report.latestCompletedGameweek, 6);
   assert.deepEqual(report.teams.map(team => [team.completedMatches, team.goalProbability, team.cleanSheetProbability,
     team.winOrDrawProbability, team.teamIndex]), [
-    [6, 5 / 6, 3 / 6, 5 / 6, 1300 / 6], [5, 2 / 5, 3 / 5, 3 / 5, 160],
-    [4, 1 / 4, 1 / 4, 2 / 4, 100], [5, 3 / 5, 2 / 5, 3 / 5, 160]
+    [6, 5 / 6, 3 / 6, 4.5 / 6, 1250 / 6], [5, 2 / 5, 3 / 5, 2 / 5, 140],
+    [4, 1 / 4, 1 / 4, 1.5 / 4, 87.5], [5, 3 / 5, 2 / 5, 2 / 5, 140]
   ]);
   assert.deepEqual(report.matches.map(match => [match.id, match.outcome, match.eligibleTeamIds]), [
     [99, 'home', [1]], [100, 'away', [1]], [101, 'draw', [2, 4]]
@@ -144,7 +144,7 @@ test('season index treats equal fractions as a draw and leaves matches with miss
   const { teams: [home, away, , noData], matches } = await createSeasonIndexAnalysis(fpl)(dashboard, fixtures, 11, null, cutoff);
   const sumRates = team => team.goalProbability + team.cleanSheetProbability + team.winOrDrawProbability;
   assert.notEqual(sumRates(home), sumRates(away));
-  assert.deepEqual([home.teamIndex, away.teamIndex], [120, 120]);
+  assert.deepEqual([home.teamIndex, away.teamIndex], [90, 90]);
   assert.equal(matches[0].outcome, 'draw');
   assert.deepEqual(matches[0].eligibleTeamIds, [1, 2]);
   assert.deepEqual([noData.goalProbability, noData.cleanSheetProbability, noData.winOrDrawProbability, noData.teamIndex],
