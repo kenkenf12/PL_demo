@@ -367,12 +367,9 @@ $('#method-button').addEventListener('click', () => openDialog('How projections 
   <p>Captain picks use the next Gameweek’s projection before the captain multiplier. Best value uses projected points per £m among players averaging at least 45 minutes. Transfer gains compare the two players over the selected horizon.</p>
   <p>Availability is held constant across the projection horizon, so return dates and rotation can materially change the estimates.</p>`));
 
-const predictions = setupPredictions({ request: get, html, sourceList, openDialog, sourceTime,
+setupPredictions({ request: get, html, sourceList, openDialog, sourceTime,
   onRefresh(data) {
     showDashboard(data);
     if (state.entry) loadEntry(state.entry.entry.id);
   }
 });
-get('/api/dashboard').then(data => {
-  if (predictions.useSnapshot(data)) showDashboard(data);
-}).catch(error => predictions.showSnapshotWarning(error.message));

@@ -1,6 +1,7 @@
 export const number = value => Number(value) || 0;
 export const price = value => value == null ? '—' : `£${(value / 10).toFixed(1)}m`;
 export const forecast = value => value == null ? '—' : value.toFixed(1);
+export const isGameweekComplete = event => event?.finished === true && event.data_checked === true;
 
 export function upcomingWeeks(events, count, now = Date.now()) {
   return events.filter(event => !event.finished && Date.parse(event.deadline_time) > now)

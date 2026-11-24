@@ -1,4 +1,6 @@
-import { forecast, price, remainingFixtures } from './model.mjs';
+import { forecast, isGameweekComplete, price, remainingFixtures } from './model.mjs';
+
+const statusCheckInterval = 5 * 60_000;
 
 const strategyName = {
   ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance',
@@ -14,6 +16,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const analyse = $('#analyse');
   const preview = $('#prediction-preview');
   const refreshStatus = $('#refresh-status');
+  const gameweekStatus = $('#gameweek-status');
   const dataStatus = $('#data-status');
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
@@ -24,6 +27,9 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   let busy = false;
   let records = [];
   let historyRequest = 0;
+  let gameweekOptions;
+  let statusRequest;
+  let refreshSequence = 0;
   const shortDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'Europe/London' });
   const percent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 }).format;
 
@@ -33,10 +39,23 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   }
 
   function gameweeks(events) {
-    const selected = week.value;
-    week.innerHTML = '<option value="">Choose a Gameweek</option>' + events.map(event =>
-      `<option value="${event.id}">${html(event.name)}${event.finished ? ' · Completed' : ''}</option>`).join('');
-    week.value = events.some(event => event.id === Number(selected)) ? selected : '';
+    const options = '<option value="">Choose a Gameweek</option>' + events.map(event =>
+      `<option value="${event.id}">${html(event.name)}${isGameweekComplete(event) ? ' · COMPLETE' : ''}</option>`).join('');
+    if (gameweekOptions !== options) {
+      const selected = week.value;
+      week.innerHTML = options;
+      week.value = events.some(event => event.id === Number(selected)) ? selected : '';
+      gameweekOptions = options;
+    }
+  }
+
+  function showGameweekStatus(events) {
+    gameweeks(events);
+    const latestComplete = events.reduce((latest, event) => isGameweekComplete(event) && event.id > latest ? event.id : latest, 0);
+    const message = latestComplete ? `Gameweek ${latestComplete} · COMPLETE`
+      : 'No Gameweek has been confirmed complete.';
+    if (gameweekStatus.textContent !== message) gameweekStatus.textContent = message;
+    gameweekStatus.hidden = false;
   }
 
   function canPreview(time) {
@@ -68,22 +87,28 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     analysisStatus.hidden = !message;
   }
 
-  function useSnapshot(data) {
-    if (ready || busy) return false;
-    showSnapshot(data);
-    if (data.refreshError) refreshStatus.textContent = `${data.refreshError} Using the last validated league dataset.`;
-    return true;
-  }
-
-  function showSnapshotWarning(message) {
-    if (ready || busy) return;
-    refreshStatus.textContent = message;
-    if (!hasSnapshot) dataStatus.textContent = 'Data source unavailable · Gameweek unavailable · Dataset incomplete';
+  function checkGameweekStatus() {
+    if (busy || statusRequest || document.hidden) return;
+    const sequence = refreshSequence;
+    statusRequest = request('/api/dashboard').then(data => {
+      if (sequence !== refreshSequence) return;
+      if (hasSnapshot) {
+        showGameweekStatus(data.events);
+        return;
+      }
+      showSnapshot(data);
+      onRefresh(data);
+      if (data.refreshError) refreshStatus.textContent = `${data.refreshError} Using the last validated league dataset.`;
+    }).catch(error => {
+      if (sequence !== refreshSequence || hasSnapshot) return;
+      refreshStatus.textContent = error.message;
+      dataStatus.textContent = 'Data source unavailable · Gameweek unavailable · Dataset incomplete';
+    }).finally(() => { statusRequest = undefined; });
   }
 
   function showSnapshot(data) {
     hasSnapshot = true;
-    gameweeks(data.events);
+    showGameweekStatus(data.events);
     const { source, lastSuccessfulFetch, gameweek, complete } = data.dataStatus;
     dataStatus.textContent = `${source} · ${gameweek == null ? 'Gameweek unavailable' : `Covers Gameweek ${gameweek}`} · League dataset ${complete ? 'complete' : 'incomplete'}`;
     $('#last-refresh').textContent = `Last successful fetch ${sourceTime.format(new Date(lastSuccessfulFetch))}`;
@@ -429,6 +454,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     showAnalysis('');
     refreshStatus.textContent = week.value ? `Refresh official FPL data for Gameweek ${week.value}.` : 'Select a Gameweek to start.';
     updateControls();
+    checkGameweekStatus();
   });
   strategy.addEventListener('change', () => {
     hideResults();
@@ -437,6 +463,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     updateControls();
   });
   refresh.addEventListener('click', async () => {
+    refreshSequence += 1;
     busy = true;
     showAnalysis('');
     refreshStatus.textContent = `Refreshing official FPL data for Gameweek ${week.value}…`;
@@ -451,7 +478,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       const closed = ready.week.finished || Date.parse(ready.week.deadline_time) <= time;
       const loaded = ready.dashboard.refreshError ? `Using cached historical data for Gameweek ${ready.week.id}. ${ready.dashboard.refreshError}`
         : `Gameweek ${ready.week.id} data refreshed.`;
-      const availability = !closed ? '' : canPreview(time) ? 'The FPL deadline has passed. Preview remaining fixtures.'
+      const availability = !closed || isGameweekComplete(ready.week) ? '' : canPreview(time) ? 'The FPL deadline has passed. Preview remaining fixtures.'
         : 'The FPL deadline has passed. A preview requires a remaining fixture with a published kick-off.';
       refreshStatus.textContent = [loaded, availability,
         ready.previousError ?? (ready.previousSource === 'Cached Historical Data' ? `Using cached Gameweek ${ready.previousWeek} scoring.` : ''),
@@ -504,6 +531,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   });
 
   gameweeks(Array.from({ length: 38 }, (_, index) => ({ id: index + 1, name: `Gameweek ${index + 1}` })));
+  document.addEventListener('visibilitychange', checkGameweekStatus);
+  setInterval(checkGameweekStatus, statusCheckInterval);
+  checkGameweekStatus();
   loadHistory();
-  return { useSnapshot, showSnapshotWarning };
 }

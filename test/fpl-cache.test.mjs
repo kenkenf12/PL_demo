@@ -7,6 +7,7 @@ import { createFplClient } from '../lib/fpl.mjs';
 import { createApiHandler } from '../lib/http.mjs';
 import { seasonSnapshot } from '../lib/node-storage.mjs';
 import { predictionService } from '../lib/predictions.mjs';
+import { isGameweekComplete } from '../public/model.mjs';
 
 const firstDeadline = Date.parse('2026-08-15T10:00:00Z');
 const day = 86_400_000;
@@ -31,16 +32,17 @@ const firstHalf = Array.from({ length: 19 }, () => {
 });
 const schedule = [...firstHalf, ...firstHalf.map(round => round.map(([home, away]) => [away, home]))];
 
-function season(finalWeek) {
+function season(finalWeek, { finishedWeek = finalWeek, currentWeek = finalWeek + 1, unfinishedFixture } = {}) {
   const events = schedule.map((_, index) => {
     const id = index + 1;
-    return { id, name: `Gameweek ${id}`, deadline_time: iso(deadline(id)), finished: id <= finalWeek,
-      data_checked: id <= finalWeek, is_current: id === finalWeek + 1, is_next: id === finalWeek + 2 };
+    return { id, name: `Gameweek ${id}`, deadline_time: iso(deadline(id)), finished: id <= finishedWeek,
+      data_checked: id <= finalWeek, is_current: id === currentWeek, is_next: id === currentWeek + 1 };
   });
   const fixtures = schedule.flatMap((pairs, index) => pairs.map(([team_h, team_a], match) => ({
     id: index * 10 + match + 1, event: index + 1, team_h, team_a, kickoff_time: iso(deadline(index + 1) + day / 4),
-    started: index < finalWeek, finished: index < finalWeek, finished_provisional: index < finalWeek,
-    team_h_score: index < finalWeek ? 1 : null, team_a_score: index < finalWeek ? 1 : null,
+    started: index < finishedWeek, finished: index < finishedWeek && index * 10 + match + 1 !== unfinishedFixture,
+    finished_provisional: index < finishedWeek,
+    team_h_score: index < finishedWeek ? 1 : null, team_a_score: index < finishedWeek ? 1 : null,
     team_h_difficulty: 3, team_a_difficulty: 3
   })));
   return { bootstrap: { elements: players, teams, events, element_types: positions, game_config: { scoring: points } }, fixtures };
@@ -53,7 +55,7 @@ function feed() {
     const path = new URL(url).pathname;
     state.calls.push(path);
     if (state.offline) throw new DOMException('Timed out', 'TimeoutError');
-    const { bootstrap, fixtures } = season(state.finalWeek);
+    const { bootstrap, fixtures } = season(state.finalWeek, state);
     if (path === '/api/bootstrap-static/') {
       return Response.json(state.rosterPartial ? { ...bootstrap, elements: players.slice(0, -1) } : bootstrap);
     }
@@ -133,6 +135,36 @@ test('recovers the newest valid Gameweek archive if the latest snapshot is unrea
   const recovered = await upstream.client(store()).getDashboard(true);
   assert.deepEqual(recovered.dataStatus, { ...newest.dataStatus, source: 'Cached Historical Data' });
   assert.deepEqual(recovered.events, newest.events);
+});
+
+test('waits for official checks and every final fixture before reporting completion after a rollover', async t => {
+  const { store } = await cache(t);
+  const upstream = feed();
+  const client = upstream.client(store());
+  const { state } = upstream;
+  state.now = deadline(3) + day;
+  state.currentWeek = 3;
+  state.finishedWeek = 2;
+
+  const pending = await client.getDashboard(true);
+  assert.equal(pending.dataStatus.gameweek, 3);
+  assert.deepEqual(pending.events.filter(isGameweekComplete).map(event => event.id), [1]);
+  assert.equal((await client.getLive(2)).confirmedFinal, false);
+
+  state.finalWeek = 2;
+  state.unfinishedFixture = 20;
+  const inconsistent = await client.getDashboard(true);
+  assert.match(inconsistent.refreshError, /inconsistent/);
+  assert.deepEqual(inconsistent.events, pending.events);
+
+  state.unfinishedFixture = undefined;
+  const confirmed = await client.getDashboard(true);
+  assert.deepEqual(confirmed.events.filter(isGameweekComplete).map(event => event.id), [1, 2]);
+  assert.equal((await client.getLive(2)).confirmedFinal, true);
+
+  state.offline = true;
+  const recovered = await upstream.client(store()).getDashboard(true);
+  assert.deepEqual(recovered.events, confirmed.events);
 });
 
 test('recovers validated Gameweek scoring and player history during an outage after restart', async t => {
