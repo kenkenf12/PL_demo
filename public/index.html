@@ -48,9 +48,12 @@
       </div>
       <p id="analysis-status" role="status" hidden></p>
       <div id="prediction-result" hidden></div>
-      <section id="news-result" aria-labelledby="news-title" hidden></section>
+      <section id="news-result" aria-label="News &amp; Expert Opinion Analysis" hidden></section>
       <details class="prediction-history" id="prediction-history">
         <summary>Prediction history</summary>
+        <label class="week-select history-week" for="history-week">Gameweek
+          <select id="history-week" disabled><option value="">Choose a Gameweek</option></select>
+        </label>
         <div id="history-content"><p class="empty">Loading saved predictions…</p></div>
       </details>
     </section>

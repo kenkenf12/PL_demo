@@ -39,10 +39,8 @@ function setup({ missingWeek, uncheckedWeeks = [6] } = {}) {
       }) };
     }
   };
-  const service = predictionService(fpl, { history: {
-    read: async () => [],
-    update: async () => assert.fail('Special Rules must not write prediction history')
-  } });
+  let saved = [];
+  const service = predictionService(fpl, { history: { read: async () => saved, update: async transform => { saved = transform(saved); } } });
   return { service, handle: createApiHandler(fpl, service), liveCalls };
 }
 
@@ -56,6 +54,8 @@ test('finds goals and assists followed by two blanks using recorded starts and f
   const report = await response.json();
   assert.equal(report.strategy, 'special-rules');
   assert.equal(report.gameweek, gameweek);
+  assert.ok(report.id);
+  assert.deepEqual(await (await handle('GET', new URL('https://app.example/api/predictions'))).json(), [report]);
   assert.deepEqual(report.weeks, [3, 4, 5]);
   assert.deepEqual(liveCalls, [5, 2, 3, 4]);
   assert.equal(report.sources.length, 4);

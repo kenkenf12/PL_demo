@@ -68,7 +68,8 @@ test('compares the latest three verified meetings and runs the shared squad sele
   const requests = [];
   let now = asOf;
   const fpl = { getDashboard: async () => dashboard, getLive: async () => null };
-  const history = { read: async () => [], update: async () => assert.fail('H2H Index wrote prediction history') };
+  let saved = [];
+  const history = { read: async () => saved, update: async transform => { saved = transform(saved); } };
   const h2hIndex = createH2HIndexAnalysis(fpl, provider(fixtures, records, requests));
   const api = createApiHandler(fpl, predictionService(fpl, { h2hIndex, history, now: () => now }));
   const url = (path, parameters) => new URL(`http://localhost/api/${path}?${new URLSearchParams(parameters)}`);
@@ -78,6 +79,8 @@ test('compares the latest three verified meetings and runs the shared squad sele
   assert.equal(response.status, 201);
   const report = await response.json();
   assert.equal(report.strategy, 'h2h-index');
+  assert.ok(report.id);
+  assert.deepEqual(await (await api('GET', url('predictions', { id: report.id }))).json(), report);
   assert.equal(report.requiredMeetings, 3);
   const [homeWin, awayWin, draw, noPrediction] = report.matches;
   assert.deepEqual(homeWin.meetings.map(meeting => meeting.id), [latest.id, reverse.id, next.id]);
@@ -115,6 +118,7 @@ test('compares the latest three verified meetings and runs the shared squad sele
   assert.deepEqual(previewReport.matches.map(match => match.id), fixtures.map(fixture => fixture.id));
   assert.deepEqual(previewReport.matches[0].meetings.map(meeting => meeting.id), ['601', latest.id, reverse.id]);
   assert.equal(requests.length, 5);
+  assert.equal(saved.length, 1);
 });
 
 test('leaves a fixture unpredicted when its head-to-head feed fails', async () => {
@@ -153,7 +157,8 @@ test('combined index normalises the source averages and applies the strict draw 
   const requests = [];
   let now = asOf;
   const fpl = { getDashboard: async () => data, getLive: async () => null };
-  const history = { read: async () => [], update: async () => assert.fail('An index strategy wrote prediction history') };
+  let saved = [];
+  const history = { read: async () => saved, update: async transform => { saved = transform(saved); } };
   const h2hTeamIndices = createH2HTeamIndices(provider(upcoming, records, requests));
   const api = createApiHandler(fpl, predictionService(fpl, { h2hTeamIndices, history, now: () => now }));
   const url = (path, parameters) => new URL(`http://localhost/api/${path}?${new URLSearchParams(parameters)}`);
@@ -164,6 +169,15 @@ test('combined index normalises the source averages and applies the strict draw 
     return response.json();
   }
   const [season, h2h, combined] = await Promise.all(['season-index', 'h2h-index', 'combined-index'].map(strategy => report(strategy)));
+  const summaries = await (await api('GET', url('predictions', { summary: 1 }))).json();
+  assert.equal(summaries.length, 3);
+  for (const analysis of [season, h2h, combined]) {
+    const summary = summaries.find(record => record.id === analysis.id);
+    assert.equal(summary.seasonYear, data.seasonYear);
+    assert.equal(summary.gameweek, gameweek);
+    assert.deepEqual(summary.selection, { type: 'squad', count: analysis.squad.flatMap(group => group.players).length, required: 15 });
+    assert.deepEqual(await (await api('GET', url('predictions', { id: analysis.id }))).json(), analysis);
+  }
   assert.equal(combined.strategy, 'combined-index');
   assert.equal(combined.latestCompletedGameweek, 6);
   assert.equal(combined.requiredMeetings, 3);
@@ -214,6 +228,8 @@ test('combined index normalises the source averages and applies the strict draw 
 
   now = Date.parse('2026-11-28T14:00:00Z');
   const preview = await report('combined-index', 'prediction-preview');
-  assert.deepEqual(preview, { ...combined, preview: { fixtureCount: 8 } });
+  const { id, createdAt, seasonYear, ...analysis } = combined;
+  assert.deepEqual(preview, { ...analysis, preview: { fixtureCount: 8 } });
+  assert.equal(saved.length, 3);
   assert.equal(requests.length, 9);
 });

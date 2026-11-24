@@ -177,6 +177,7 @@ summary { color: #355846; font-weight: 650; cursor: pointer; }
 .prediction-statuses { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin-top: 10px; color: var(--muted); font-size: .875rem; line-height: 1.5; }
 #analysis-status { margin-top: 10px; color: #355846; font-weight: 650; }
 #prediction-result, #news-result, .prediction-history { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
+.history-week { display: block; max-width: 270px; margin-block: 12px; }
 .prediction-result-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; }
 .prediction-result-head h3 { margin: 0; font-size: 1.28rem; letter-spacing: -.03em; }
 .prediction-result-head p, .prediction-caption { color: var(--muted); font-size: .875rem; }

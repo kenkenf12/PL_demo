@@ -198,7 +198,7 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
       assert.ok(record.players.length <= 15);
       assert.equal(record.captain, null);
       assert.equal(record.viceCaptain, null);
-      assert.equal(Boolean(record.id), record.players.length > 0);
+      assert.ok(record.id);
     }
     assert.equal(record.accuracy, null);
     if (strategy === 'previous') {
@@ -225,8 +225,6 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     }
     if (record.id) results.push(record.id);
   }
-  const history = await (await request('/api/predictions')).json();
-  assert.ok(results.every(id => history.some(record => record.id === id)));
   const news = await (await request(`${scope}&strategy=news`, 201, 'POST')).json();
   assert.equal(news.strategy, 'news');
   assert.equal(news.gameweek, target.id);
@@ -238,7 +236,12 @@ test('requires a manual Gameweek refresh and runs only the selected prediction s
     assert.ok(recommendation.sources.every(source => Date.parse(source.publishedAt) >= Date.parse(news.since)
       && Date.parse(source.publishedAt) <= Date.parse(news.searchedAt) && source.url.startsWith('https://')));
   }
-  assert.deepEqual(await (await request('/api/predictions')).json(), history);
+  assert.ok(news.id);
+  const history = await (await request('/api/predictions')).json();
+  assert.ok(results.every(id => history.some(record => record.id === id)));
+  assert.deepEqual(history.find(record => record.id === news.id), news);
+  const storedNews = await (await request(`/api/predictions?id=${news.id}`)).json();
+  assert.deepEqual(storedNews, news);
   await request(`${scope}&strategy=odds`, 400, 'POST');
   await request(`${scope}&strategy=match-winners`, 400, 'POST');
   assert.deepEqual(await (await request('/api/predictions')).json(), history);

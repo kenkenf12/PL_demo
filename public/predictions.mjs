@@ -2,16 +2,16 @@ import { forecast, isGameweekComplete, price, remainingFixtures } from './model.
 
 const statusCheckInterval = 5 * 60_000;
 
-const strategyName = {
-  ranking: 'Current FPL Ranking', previous: 'Previous Gameweek Performance',
-  recent: 'Recent Performance Form', 'match-winners': 'Match & Player'
-};
-const strategyLabel = strategy => strategyName[strategy] ?? (strategy === 'weather' ? 'Archived weather prediction' : strategy);
+const archivedStrategyNames = new Map([['match-winners', 'Match & Player'], ['weather', 'Archived weather prediction']]);
+const historyPeriod = (seasonYear, gameweek) => `${seasonYear}:${gameweek}`;
 const $ = selector => document.querySelector(selector);
 
 export function setupPredictions({ request, html, sourceList, openDialog, sourceTime, onRefresh }) {
   const week = $('#prediction-week');
   const strategy = $('#prediction-strategy');
+  const strategyNames = new Map(Array.from(strategy.options).filter(option => option.value)
+    .map(option => [option.value, option.textContent.trim()]));
+  const strategyLabel = id => strategyNames.get(id) ?? archivedStrategyNames.get(id) ?? id;
   const refresh = $('#refresh');
   const analyse = $('#analyse');
   const preview = $('#prediction-preview');
@@ -21,12 +21,16 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   const analysisStatus = $('#analysis-status');
   const result = $('#prediction-result');
   const newsResult = $('#news-result');
+  const historyWeek = $('#history-week');
   const history = $('#history-content');
   let ready;
   let hasSnapshot = false;
   let busy = false;
-  let records = [];
+  let records;
+  let seasonYear;
+  let seasonWeeks = [];
   let historyRequest = 0;
+  let reportRequest = 0;
   let gameweekOptions;
   let statusRequest;
   let refreshSequence = 0;
@@ -49,8 +53,13 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     }
   }
 
-  function showGameweekStatus(events) {
+  function showGameweekStatus({ events, seasonYear: year }) {
     gameweeks(events);
+    if (year !== seasonYear) {
+      seasonYear = year;
+      seasonWeeks = events.map(event => event.id);
+      renderHistory(true);
+    }
     const latestComplete = events.reduce((latest, event) => isGameweekComplete(event) && event.id > latest ? event.id : latest, 0);
     const message = latestComplete ? `Gameweek ${latestComplete} · COMPLETE`
       : 'No Gameweek has been confirmed complete.';
@@ -93,7 +102,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     statusRequest = request('/api/dashboard').then(data => {
       if (sequence !== refreshSequence) return;
       if (hasSnapshot) {
-        showGameweekStatus(data.events);
+        showGameweekStatus(data);
         return;
       }
       showSnapshot(data);
@@ -108,7 +117,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
 
   function showSnapshot(data) {
     hasSnapshot = true;
-    showGameweekStatus(data.events);
+    showGameweekStatus(data);
     const { source, lastSuccessfulFetch, gameweek, complete } = data.dataStatus;
     dataStatus.textContent = `${source} · ${gameweek == null ? 'Gameweek unavailable' : `Covers Gameweek ${gameweek}`} · League dataset ${complete ? 'complete' : 'incomplete'}`;
     $('#last-refresh').textContent = `Last successful fetch ${sourceTime.format(new Date(lastSuccessfulFetch))}`;
@@ -440,7 +449,7 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ${report.sources.length ? `<details class="provenance"><summary>Publisher feeds searched</summary><ul class="news-evidence">
         ${report.sources.map(source => `<li><a href="${html(source.url)}" target="_blank" rel="noopener">${html(source.publisher)}</a>
         <span>Retrieved ${sourceTime.format(new Date(source.retrievedAt))}</span></li>`).join('')}</ul></details>` : ''}`;
-    return `<div class="prediction-result-head"><h3 id="news-title">News &amp; Expert Opinion Analysis</h3></div>
+    return `<div class="prediction-result-head"><h3>News &amp; Expert Opinion Analysis</h3></div>
       ${reportSections(listing, [
         ['Publisher coverage', search],
         ['Verified positive mentions', `<p>Coverage is matched to FPL players. Each publisher counts once per player, and repeated bylines and copied passages are deduplicated.</p>${evidence}`],
@@ -448,46 +457,103 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       ], 'Final recommendations')}`;
   }
 
-  function renderHistory() {
-    if (!records.length) {
-      history.innerHTML = '<p class="empty">Saved predictions will appear here. Refresh FPL after a Gameweek is final to record actual points.</p>';
-      return;
-    }
-    const latest = new Map();
+  function historyComparison() {
+    const latest = new Set();
+    const comparison = new Map();
     for (const record of records) {
-      const key = `${record.seasonYear}:${record.gameweek}:${record.strategy}`;
-      if (!latest.has(key)) latest.set(key, record);
+      const key = `${historyPeriod(record.seasonYear, record.gameweek)}:${record.strategy}`;
+      if (latest.has(key)) continue;
+      latest.add(key);
+      const { accuracy } = record;
+      if (accuracy?.meanAbsoluteError == null) continue;
+      const scores = comparison.get(record.strategy) ?? { error: 0, players: 0, weeks: 0 };
+      scores.error += accuracy.meanAbsoluteError * accuracy.comparedCount;
+      scores.players += accuracy.comparedCount;
+      scores.weeks += 1;
+      comparison.set(record.strategy, scores);
     }
-    const comparison = Object.entries(strategyName).filter(([key]) => key !== 'match-winners' || records.some(record => record.strategy === key))
-      .map(([key, label]) => {
-      const scored = [...latest.values()].filter(record => record.strategy === key && record.accuracy?.meanAbsoluteError != null);
-      const samples = scored.reduce((sum, record) => sum + record.accuracy.comparedCount, 0);
-      const error = samples ? scored.reduce((sum, record) => sum + record.accuracy.meanAbsoluteError * record.accuracy.comparedCount, 0) / samples : null;
-      return `<div class="prediction-comparison"><strong>${label}</strong><span>${forecast(error)} pts/player · ${scored.length} scored GW</span></div>`;
-    }).join('');
-    history.innerHTML = `<div class="prediction-comparisons">${comparison}</div>
-      <p class="prediction-caption">Mean absolute error uses the latest prediction per strategy and Gameweek. Lower is better.</p>
-      <div class="scroll-table" tabindex="0" aria-label="Prediction history table"><table><thead><tr>
-        <th scope="col">Season / GW</th><th scope="col">Strategy</th><th scope="col">Saved</th><th scope="col">Projected</th>
-        <th scope="col">Actual</th><th scope="col">Error per player</th><th scope="col">Players</th></tr></thead>
-        <tbody>${records.map(record => {
-          const { accuracy } = record;
-          return `<tr><td>${record.seasonYear}/${String(record.seasonYear + 1).slice(-2)} · GW${record.gameweek}</td>
-            <td>${html(strategyLabel(record.strategy))}${record.shortlist ? `<span class="player-meta">${record.players.length}-player shortlist</span>` : ''}</td>
-            <td>${sourceTime.format(new Date(record.createdAt))}</td><td>${record.strategy === 'match-winners' ? record.total ?? '—' : forecast(record.total)}${record.projectedCount < record.players.length ? ` (${record.projectedCount}/${record.players.length})` : ''}</td>
-            <td>${accuracy ? `${accuracy.actualTotal}${accuracy.actualCount < record.players.length ? ` (${accuracy.actualCount}/${record.players.length})` : ''}` : record.players.length ? 'Pending' : '—'}</td>
-            <td>${forecast(accuracy?.meanAbsoluteError)}${accuracy && accuracy.comparedCount < record.players.length ? ` (${accuracy.comparedCount}/${record.players.length})` : ''}</td>
-            <td><button type="button" class="text-button" data-saved-prediction="${html(record.id)}">View</button></td></tr>`;
-        }).join('')}</tbody></table></div>`;
+    if (!comparison.size) return '';
+    return `<div class="prediction-comparisons">${[...comparison].map(([id, { error, players, weeks }]) =>
+      `<div class="prediction-comparison"><strong>${html(strategyLabel(id))}</strong><span>${forecast(players ? error / players : null)} pts/player · ${weeks} scored GW</span></div>`).join('')}</div>
+      <p class="prediction-caption">Mean absolute error across saved Gameweeks uses the latest prediction per strategy and Gameweek. Lower is better.</p>`;
   }
 
-  async function loadHistory() {
+  function selectionLabel(selection) {
+    switch (selection?.type) {
+      case 'squad': return `${selection.count} of ${selection.required} selected`;
+      case 'recommendations': return `${selection.count} ${selection.count === 1 ? 'recommendation' : 'recommendations'}`;
+      case 'rules': return 'Rule matches';
+      case 'shortlist': return `${selection.count}-player shortlist`;
+      case 'players': return `${selection.count} selected`;
+      default: return 'Saved report';
+    }
+  }
+
+  function historyRow(id, record) {
+    const label = html(strategyLabel(id));
+    if (!record) return `<tr><th scope="row">${label}</th><td colspan="6">No saved analysis</td></tr>`;
+    const { accuracy, selection } = record;
+    const date = Number.isFinite(Date.parse(record.createdAt)) ? sourceTime.format(new Date(record.createdAt)) : '—';
+    const count = selection?.count;
+    const projected = id === 'match-winners' ? record.total ?? '—' : forecast(record.total);
+    const incomplete = value => value < count ? ` (${value}/${count})` : '';
+    const actual = accuracy ? `${accuracy.actualTotal}${incomplete(accuracy.actualCount)}` : record.hasPlayerForecasts ? 'Pending' : '—';
+    return `<tr><th scope="row">${label}</th><td>${date}</td><td>${selectionLabel(selection)}</td>
+      <td>${projected}${incomplete(record.projectedCount)}</td><td>${actual}</td>
+      <td>${forecast(accuracy?.meanAbsoluteError)}${incomplete(accuracy?.comparedCount)}</td>
+      <td><button type="button" class="text-button" aria-label="View ${label} report" data-saved-prediction="${html(record.id)}">View</button></td></tr>`;
+  }
+
+  function historyTable(rows, label) {
+    return `<div class="scroll-table" tabindex="0" aria-label="${label}"><table><thead><tr>
+      <th scope="col">Strategy</th><th scope="col">Saved</th><th scope="col">Result</th><th scope="col">Projected</th>
+      <th scope="col">Actual</th><th scope="col">Error per player</th><th scope="col">Report</th></tr></thead>
+      <tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
+  function renderHistory(followPredictionWeek = false) {
+    if (!records) return;
+    const periods = new Map(seasonWeeks.map(gameweek => [historyPeriod(seasonYear, gameweek), { seasonYear, gameweek }]));
+    for (const { seasonYear, gameweek } of records) periods.set(historyPeriod(seasonYear, gameweek), { seasonYear, gameweek });
+    const predictionWeek = historyPeriod(seasonYear, week.value);
+    const wanted = followPredictionWeek && periods.has(predictionWeek) ? predictionWeek : historyWeek.value;
+    const latest = records[0];
+    const selected = periods.has(wanted) ? wanted : periods.has(predictionWeek) ? predictionWeek
+      : latest ? historyPeriod(latest.seasonYear, latest.gameweek) : '';
+    const choices = [...periods].sort(([, a], [, b]) => b.seasonYear - a.seasonYear || b.gameweek - a.gameweek);
+    historyWeek.innerHTML = '<option value="">Choose a Gameweek</option>' + choices.map(([key, { seasonYear, gameweek }]) =>
+      `<option value="${key}">${seasonYear}/${String(seasonYear + 1).slice(-2)} · Gameweek ${gameweek}</option>`).join('');
+    historyWeek.value = selected;
+    historyWeek.disabled = !choices.length;
+    if (!selected) {
+      history.innerHTML = '<p class="empty">Choose a Gameweek to see its strategy reports.</p>';
+      return;
+    }
+
+    const strategies = new Map([...strategyNames.keys()].map(id => [id, []]));
+    for (const record of records) {
+      if (historyPeriod(record.seasonYear, record.gameweek) !== selected) continue;
+      if (!strategies.has(record.strategy)) strategies.set(record.strategy, []);
+      strategies.get(record.strategy).push(record);
+    }
+    const rows = [];
+    const earlier = [];
+    for (const [id, [record, ...previous]] of strategies) {
+      rows.push(historyRow(id, record));
+      earlier.push(...previous.map(item => historyRow(id, item)));
+    }
+    history.innerHTML = `${historyTable(rows, 'Latest strategy reports for the selected Gameweek')}
+      ${earlier.length ? `<details class="provenance"><summary>Earlier runs for this Gameweek</summary>${historyTable(earlier, 'Earlier strategy reports')}</details>` : ''}
+      ${historyComparison()}`;
+  }
+
+  async function loadHistory(followPredictionWeek = false) {
     const sequence = ++historyRequest;
     try {
-      const saved = await request('/api/predictions');
+      const saved = await request('/api/predictions?summary=1');
       if (sequence !== historyRequest) return;
       records = saved.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-      renderHistory();
+      renderHistory(followPredictionWeek);
     } catch (error) {
       if (sequence === historyRequest) history.textContent = error.message;
     }
@@ -500,6 +566,8 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
     showAnalysis('');
     refreshStatus.textContent = week.value ? `Refresh official FPL data for Gameweek ${week.value}.` : 'Select a Gameweek to start.';
     updateControls();
+    reportRequest += 1;
+    renderHistory(true);
     checkGameweekStatus();
   });
   strategy.addEventListener('change', () => {
@@ -538,8 +606,9 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       updateControls();
     }
   });
-  const analysisViews = { 'special-rules': specialRulesView, 'season-index': seasonIndexView,
-    'h2h-index': h2hIndexView, 'combined-index': combinedIndexView };
+  const analysisViews = new Map([['special-rules', specialRulesView], ['season-index', seasonIndexView], ['h2h-index', h2hIndexView],
+    ['combined-index', combinedIndexView], ['news', newsView], ['match-winners', archivedMatchWinnerView]]);
+  const reportView = record => (analysisViews.get(record.strategy) ?? squadView)(record);
   async function runAnalysis(usePreview) {
     busy = true;
     hideResults();
@@ -551,16 +620,11 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
       const record = await request(`${endpoint}?${query}`, 'POST');
       const previewNotice = record.preview ? `<p class="notice"><strong>Post-deadline preview</strong> · ${record.preview.fixtureCount}
         remaining ${record.preview.fixtureCount === 1 ? 'fixture' : 'fixtures'} · Separate from Prediction history</p>` : '';
-      if (record.strategy === 'news') {
-        newsResult.innerHTML = previewNotice + newsView(record);
-        newsResult.hidden = false;
-        showAnalysis('');
-        return;
-      }
-      result.innerHTML = previewNotice + (analysisViews[record.strategy] ?? squadView)(record);
-      result.hidden = false;
-      showAnalysis(record.id ? (record.shortlist ? 'Shortlist saved.' : 'Squad prediction saved.') : '');
-      if (record.id) await loadHistory();
+      const panel = record.strategy === 'news' ? newsResult : result;
+      panel.innerHTML = previewNotice + reportView(record);
+      panel.hidden = false;
+      showAnalysis(record.id ? 'Saved to Prediction history.' : '');
+      if (record.id) await loadHistory(true);
     } catch (error) {
       showAnalysis(error.message);
     } finally {
@@ -570,10 +634,21 @@ export function setupPredictions({ request, html, sourceList, openDialog, source
   }
   analyse.addEventListener('click', () => runAnalysis(false));
   preview.addEventListener('click', () => runAnalysis(true));
-  history.addEventListener('click', event => {
+  historyWeek.addEventListener('change', () => {
+    reportRequest += 1;
+    renderHistory();
+  });
+  history.addEventListener('click', async event => {
     const button = event.target.closest('[data-saved-prediction]');
-    const record = records.find(item => item.id === button?.dataset.savedPrediction);
-    if (record) openDialog('Saved prediction', (record.strategy === 'match-winners' ? archivedMatchWinnerView : squadView)(record));
+    if (!button) return;
+    const sequence = ++reportRequest;
+    try {
+      const query = new URLSearchParams({ id: button.dataset.savedPrediction });
+      const record = await request(`/api/predictions?${query}`);
+      if (sequence === reportRequest) openDialog('Saved prediction', reportView(record));
+    } catch (error) {
+      if (sequence === reportRequest) openDialog('Saved prediction', `<p>${html(error.message)}</p>`);
+    }
   });
 
   gameweeks(Array.from({ length: 38 }, (_, index) => ({ id: index + 1, name: `Gameweek ${index + 1}` })));

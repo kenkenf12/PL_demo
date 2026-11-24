@@ -86,7 +86,7 @@ test('keeps the manual refresh status and prediction controls when an older chec
   const checking = Promise.withResolvers();
   let checks = 0;
   const { document, element, select } = predictionPage(t, async (path, method = 'GET') => {
-    if (path === '/api/predictions') return [];
+    if (path === '/api/predictions?summary=1') return [];
     if (path === '/api/dashboard') return ++checks === 1 ? stale : checking.promise;
     assert.equal(method, 'POST');
     assert.equal(path, '/api/prediction-data?gameweek=8');

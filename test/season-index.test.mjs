@@ -78,7 +78,8 @@ test('season index applies fixture eligibility to the shared player rankings and
   dashboard.fixtures.push(awayWin, draw, { ...upcoming, id: 102, started: true });
   dashboard.players = players.flatMap(player => [player, { ...player, id: player.id + 100 }]);
   const client = { getDashboard: async () => dashboard, getLive: async event => playerEvidence(event, dashboard.players) };
-  const history = { read: async () => [], update: async () => assert.fail('The season index wrote prediction history') };
+  let saved = [];
+  const history = { read: async () => saved, update: async transform => { saved = transform(saved); } };
   let time = cutoff;
   const api = createApiHandler(client, predictionService(client, { history, now: () => time }));
   const url = (path, parameters) => new URL(`http://localhost/api/${path}?${new URLSearchParams(parameters)}`);
@@ -89,6 +90,8 @@ test('season index applies fixture eligibility to the shared player rankings and
   assert.equal(response.status, 201);
   const report = await response.json();
   assert.equal(report.strategy, 'season-index');
+  assert.ok(report.id);
+  assert.deepEqual(await (await api('GET', url('predictions', { id: report.id }))).json(), report);
   assert.equal(report.latestCompletedGameweek, 6);
   assert.deepEqual(report.teams.map(team => [team.completedMatches, team.goalProbability, team.cleanSheetProbability,
     team.winOrDrawProbability, team.teamIndex]), [
@@ -130,7 +133,9 @@ test('season index applies fixture eligibility to the shared player rankings and
   time = Date.parse('2026-10-23T14:00:00Z');
   const previewResponse = await api('POST', url('prediction-preview', query));
   assert.equal(previewResponse.status, 200);
-  assert.deepEqual(await previewResponse.json(), { ...report, preview: { fixtureCount: 3 } });
+  const { id, createdAt, seasonYear, ...analysis } = report;
+  assert.deepEqual(await previewResponse.json(), { ...analysis, preview: { fixtureCount: 3 } });
+  assert.equal(saved.length, 1);
 });
 
 test('fills all 15 slots by reserving club capacity for positions with fewer candidates', async () => {

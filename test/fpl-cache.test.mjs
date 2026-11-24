@@ -209,7 +209,12 @@ test('keeps provisional scores out of saved actuals and enforces deadlines durin
   assert.equal((await live.getLive(2, true)).confirmedFinal, false);
   await live.getLive(1, true);
 
-  let records = [{ gameweek: 2, seasonYear: 2026, players: [{ id: 1, predicted: 3 }], sources: [], accuracy: null }];
+  const reports = [
+    { strategy: 'news', seasonYear: 2026, gameweek: 2, recommendations: [{ playerId: 1 }] },
+    { strategy: 'season-index', seasonYear: 2026, gameweek: 2, squad: [{ required: 15, players: [{ id: 2, performanceScore: 3 }] }] },
+    { strategy: 'special-rules', seasonYear: 2026, gameweek: 2, weeks: [1], players: [{ id: 3 }] }
+  ];
+  let records = [{ gameweek: 2, seasonYear: 2026, players: [{ id: 1, predicted: 3 }], sources: [], accuracy: null }, ...reports];
   const history = { read: async () => records, update: async transform => { records = transform(records); } };
   const service = predictionService(upstream.client(store()), { history, now: upstream.clock });
   const { state } = upstream;
@@ -233,6 +238,7 @@ test('keeps provisional scores out of saved actuals and enforces deadlines durin
   const final = await service.refresh(3);
   assert.equal(final.previousWeek, 2);
   assert.equal(records.find(record => record.gameweek === 2).accuracy.actual[0].points, 4);
+  assert.deepEqual((await service.history()).slice(-reports.length), reports);
 
   state.offline = true;
   state.now = deadline(3) + 1;
